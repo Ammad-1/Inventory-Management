@@ -1,0 +1,6 @@
+{
+  "name": "SmartPrint IQ - Inventory Management System",
+  "description": "Real-time AI print & manufacturing inventory management system with BOM recipe explosion, container tracking, landed cost calculation, job cards, and predictive reordering.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
