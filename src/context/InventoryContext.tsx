@@ -75,11 +75,11 @@ interface InventoryContextType {
     customNotes?: string;
   }) => Promise<{ success: boolean; invoiceNumber?: string; message: string }>;
   mockGenerateXeroInvoice: () => Promise<void>;
-  createItem: (item: Partial<InventoryItem>) => Promise<boolean>;
+  createItem: (item: Partial<InventoryItem>) => Promise<{ success: boolean; message: string }>;
   deleteItem: (id: string) => Promise<{ success: boolean; message: string }>;
   previewImport: (file: File, mode: ImportMode) => Promise<{ success: boolean; message?: string; preview?: ImportPreview }>;
   commitImport: (mode: ImportMode, rows: ImportRow[], operatorName?: string) => Promise<{ success: boolean; message: string }>;
-  updateItem: (id: string, updates: Partial<InventoryItem>) => Promise<boolean>;
+  updateItem: (id: string, updates: Partial<InventoryItem>) => Promise<{ success: boolean; message: string }>;
   simulateEcommerceOrder: (payload: {
     platform: string;
     customerName: string;
@@ -398,12 +398,13 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item),
       });
-      if (!res.ok) throw new Error('Failed to create item');
+      // Keep the server's reason - it says which SKU clashed and with what
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to create item');
       await refreshAll();
-      return true;
+      return { success: true as const, message: 'Item created' };
     } catch (err: any) {
-      alert(err.message);
-      return false;
+      return { success: false as const, message: err.message };
     }
   };
 
@@ -459,12 +460,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error('Failed to update item');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to update item');
       await refreshAll();
-      return true;
+      return { success: true as const, message: 'Item updated' };
     } catch (err: any) {
-      alert(err.message);
-      return false;
+      return { success: false as const, message: err.message };
     }
   };
 

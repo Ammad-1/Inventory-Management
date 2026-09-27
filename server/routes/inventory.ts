@@ -136,6 +136,19 @@ inventoryRouter.post('/', (req: Request, res: Response) => {
       supplierName = 'Supplier'
     } = req.body;
 
+    if (!sku || !String(sku).trim()) return res.status(400).json({ error: 'SKU is required' });
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Product name is required' });
+    if (!['blank', 'packaging', 'consumable'].includes(category)) {
+      return res.status(400).json({ error: 'Category must be blank, packaging or consumable' });
+    }
+
+    const clash = db.prepare('SELECT id, name FROM inventory_items WHERE sku = ?').get(String(sku).trim()) as any;
+    if (clash) {
+      return res.status(409).json({
+        error: `SKU ${String(sku).trim()} already exists — it belongs to "${clash.name}". Edit that item, or use a different SKU.`
+      });
+    }
+
     const id = `item-${crypto.randomUUID().slice(0, 8)}`;
     const now = new Date().toISOString();
 
@@ -168,7 +181,12 @@ inventoryRouter.post('/', (req: Request, res: Response) => {
 
     res.status(201).json({ id, message: 'Item created' });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    const msg = /UNIQUE constraint failed: inventory_items\.sku/.test(err.message)
+      ? 'That SKU already exists.'
+      : /CHECK constraint failed/.test(err.message)
+      ? 'One of the values is not allowed for its field.'
+      : err.message;
+    res.status(400).json({ error: msg });
   }
 });
 

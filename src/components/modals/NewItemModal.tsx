@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { ItemCategory } from '../../types';
-import { X, Package } from 'lucide-react';
+import { X, Package, AlertTriangle } from 'lucide-react';
 
 interface NewItemModalProps {
   isOpen: boolean;
@@ -9,7 +9,7 @@ interface NewItemModalProps {
 }
 
 export const NewItemModal: React.FC<NewItemModalProps> = ({ isOpen, onClose }) => {
-  const { createItem } = useInventory();
+  const { createItem, inventory } = useInventory();
 
   const [sku, setSku] = useState('');
   const [name, setName] = useState('');
@@ -27,6 +27,7 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({ isOpen, onClose }) =
   const [location, setLocation] = useState('Aisle A - Pallet Bay 1');
   const [supplierName, setSupplierName] = useState('Zibo Ceramics (China)');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -35,7 +36,8 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({ isOpen, onClose }) =
     if (!sku.trim() || !name.trim()) return;
 
     setIsSubmitting(true);
-    await createItem({
+    setError(null);
+    const res = await createItem({
       sku: sku.trim().toUpperCase(),
       name: name.trim(),
       category,
@@ -53,8 +55,17 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({ isOpen, onClose }) =
       supplierName
     });
     setIsSubmitting(false);
+
+    // Keep the dialog open on failure so the typed values are not lost
+    if (!res.success) return setError(res.message);
     onClose();
   };
+
+  // Warn before submitting rather than after: SKUs are unique
+  const trimmedSku = sku.trim().toUpperCase();
+  const duplicate = trimmedSku
+    ? inventory.find(i => i.sku.toUpperCase() === trimmedSku)
+    : undefined;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
@@ -90,9 +101,18 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({ isOpen, onClose }) =
                 placeholder="e.g. BLANK-MUG-11-RED"
                 value={sku}
                 onChange={(e) => setSku(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono uppercase focus:outline-hidden focus:border-indigo-500"
+                aria-invalid={!!duplicate}
+                aria-describedby={duplicate ? 'sku-duplicate' : undefined}
+                className={`w-full bg-slate-50 border rounded-xl px-3 py-2 text-slate-900 font-mono uppercase focus:outline-hidden ${
+                  duplicate ? 'border-rose-400 focus:border-rose-500' : 'border-slate-200 focus:border-indigo-500'
+                }`}
                 required
               />
+              {duplicate && (
+                <p id="sku-duplicate" className="mt-1 text-xs text-rose-700">
+                  Already used by &ldquo;{duplicate.name}&rdquo;. Edit that item or pick a different SKU.
+                </p>
+              )}
             </div>
 
             <div>
@@ -209,6 +229,13 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({ isOpen, onClose }) =
             </div>
           </div>
 
+          {error && (
+            <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
           <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
             <button
               type="button"
@@ -219,7 +246,7 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({ isOpen, onClose }) =
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !!duplicate}
               className="px-5 py-2 rounded-xl bg-[#1e2738] hover:bg-slate-800 text-white font-bold shadow-md shadow-slate-900/10 disabled:opacity-50"
             >
               {isSubmitting ? 'Creating...' : 'Create Item'}
