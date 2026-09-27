@@ -37,46 +37,51 @@ ecommerceRouter.get('/channels', (req: Request, res: Response) => {
       }
     });
 
+    // Only Shopify is a real integration. The others are declared as
+    // not-connected rather than dressed up with invented order counts.
+    const shopifyRow = db.prepare("SELECT shop_domain, shop_name FROM shopify_settings WHERE id = 'primary'").get() as any;
+    const shopifyConnected = !!(shopifyRow?.shop_domain);
+
     const channels = [
       {
         id: 'shopify',
-        name: 'Shopify UK Store',
-        connected: true,
-        storeIdentifier: 'printberry-custom.myshopify.com',
-        webhookUrl: 'http://localhost:5000/api/ecommerce/webhook/shopify',
-        ordersToday: statsMap['shopify']?.count || 4,
-        revenueTodayGBP: Number((statsMap['shopify']?.rev || 148.50).toFixed(2)),
-        lastOrderAt: lastOrderMap['shopify'] || new Date().toISOString()
+        name: shopifyRow?.shop_name ? `Shopify — ${shopifyRow.shop_name}` : 'Shopify',
+        connected: shopifyConnected,
+        storeIdentifier: shopifyRow?.shop_domain || 'Not connected',
+        webhookUrl: '/api/shopify/webhook',
+        ordersToday: statsMap['shopify']?.count || 0,
+        revenueTodayGBP: Number((statsMap['shopify']?.rev || 0).toFixed(2)),
+        lastOrderAt: lastOrderMap['shopify'] || undefined
       },
       {
         id: 'amazon',
         name: 'Amazon UK Marketplace',
-        connected: true,
-        storeIdentifier: 'Amazon SP-API (Seller ID: A29PRINTBERRY)',
-        webhookUrl: 'http://localhost:5000/api/ecommerce/webhook/amazon',
-        ordersToday: statsMap['amazon']?.count || 2,
-        revenueTodayGBP: Number((statsMap['amazon']?.rev || 89.20).toFixed(2)),
-        lastOrderAt: lastOrderMap['amazon'] || new Date(Date.now() - 3600000).toISOString()
+        connected: false,
+        storeIdentifier: 'Not connected — SP-API integration not built',
+        webhookUrl: '/api/ecommerce/webhook/amazon',
+        ordersToday: statsMap['amazon']?.count || 0,
+        revenueTodayGBP: Number((statsMap['amazon']?.rev || 0).toFixed(2)),
+        lastOrderAt: lastOrderMap['amazon'] || undefined
       },
       {
         id: 'ebay',
         name: 'eBay UK Store',
-        connected: true,
-        storeIdentifier: 'eBay Notification API (Store: printberry_official)',
-        webhookUrl: 'http://localhost:5000/api/ecommerce/webhook/ebay',
-        ordersToday: statsMap['ebay']?.count || 1,
-        revenueTodayGBP: Number((statsMap['ebay']?.rev || 35.80).toFixed(2)),
-        lastOrderAt: lastOrderMap['ebay'] || new Date(Date.now() - 7200000).toISOString()
+        connected: false,
+        storeIdentifier: 'Not connected — Notification API integration not built',
+        webhookUrl: '/api/ecommerce/webhook/ebay',
+        ordersToday: statsMap['ebay']?.count || 0,
+        revenueTodayGBP: Number((statsMap['ebay']?.rev || 0).toFixed(2)),
+        lastOrderAt: lastOrderMap['ebay'] || undefined
       },
       {
         id: 'tiktok',
         name: 'TikTok Shop UK',
         connected: false,
-        storeIdentifier: 'TikTok Shop Partner API (Ready to connect)',
-        webhookUrl: 'http://localhost:5000/api/ecommerce/webhook/tiktok',
-        ordersToday: 0,
-        revenueTodayGBP: 0,
-        lastOrderAt: undefined
+        storeIdentifier: 'Not connected — Partner API integration not built',
+        webhookUrl: '/api/ecommerce/webhook/tiktok',
+        ordersToday: statsMap['tiktok']?.count || 0,
+        revenueTodayGBP: Number((statsMap['tiktok']?.rev || 0).toFixed(2)),
+        lastOrderAt: lastOrderMap['tiktok'] || undefined
       }
     ];
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { XeroSyncMode, XeroInvoice } from '../../types';
 import { InvoiceDetailModal } from './InvoiceDetailModal';
+import { XeroWebhookHub } from './XeroWebhookHub';
 import { 
   FileText, 
   Plus, 
@@ -868,6 +869,9 @@ export const XeroInvoicesView: React.FC<XeroInvoicesViewProps> = ({ onOpenCreate
           </div>
         )}
       </div>
+
+      {/* Webhook verification lives with the rest of the Xero screens */}
+      <XeroWebhookHub />
 
       <InvoiceDetailModal
         invoice={detailInvoice ? invoices.find(i => i.id === detailInvoice.id) ?? null : null}
