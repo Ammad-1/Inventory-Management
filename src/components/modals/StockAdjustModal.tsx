@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useInventory } from '../../context/InventoryContext';
-import { InventoryItem, MovementType } from '../../types';
-import { X, RotateCcw, AlertTriangle } from 'lucide-react';
+import { InventoryItem } from '../../types';
+import { X, Package, Plus, Minus } from 'lucide-react';
 
 interface StockAdjustModalProps {
   isOpen: boolean;
@@ -18,9 +18,10 @@ export const StockAdjustModal: React.FC<StockAdjustModalProps> = ({
   
   const [selectedItemId, setSelectedItemId] = useState<string>('');
   const [adjustType, setAdjustType] = useState<'add' | 'remove' | 'set_absolute'>('add');
-  const [quantityValue, setQuantityValue] = useState<number>(100);
-  const [reasonCode, setReasonCode] = useState<MovementType>('manual_adjustment');
-  const [notes, setNotes] = useState<string>('Routine physical inventory cycle count adjustment');
+  const [quantityValue, setQuantityValue] = useState<number | string>(100);
+  const [notes, setNotes] = useState<string>('Warehouse physical stock count');
+  const [operatorName, setOperatorName] = useState<string>('Stock Supervisor');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
     if (preselectedItem) {
@@ -34,55 +35,56 @@ export const StockAdjustModal: React.FC<StockAdjustModalProps> = ({
 
   const currentItem = inventory.find(i => i.id === selectedItemId) || inventory[0];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentItem) return;
 
+    const parsedQty = typeof quantityValue === 'string' ? (parseInt(quantityValue) || 0) : quantityValue;
+    if (parsedQty <= 0 && adjustType !== 'set_absolute') return;
+
     let delta = 0;
     if (adjustType === 'add') {
-      delta = quantityValue;
+      delta = parsedQty;
     } else if (adjustType === 'remove') {
-      delta = -Math.abs(quantityValue);
+      delta = -Math.abs(parsedQty);
     } else {
-      // set_absolute
-      delta = quantityValue - currentItem.currentStock;
+      delta = parsedQty - currentItem.currentStock;
     }
 
-    adjustStock(
-      currentItem.id,
-      delta,
-      notes || 'Manual stock adjustment',
-      reasonCode,
-      `AUDIT-${new Date().toISOString().split('T')[0]}`
-    );
-
+    setIsSubmitting(true);
+    await adjustStock(currentItem.id, delta, notes, operatorName);
+    setIsSubmitting(false);
     onClose();
   };
 
-  const resultingBalance = currentItem 
-    ? (adjustType === 'add' 
-        ? currentItem.currentStock + quantityValue 
-        : adjustType === 'remove' 
-        ? Math.max(0, currentItem.currentStock - quantityValue) 
-        : quantityValue)
+  const numericQty = typeof quantityValue === 'string' ? (parseInt(quantityValue) || 0) : quantityValue;
+  const resultingStock = currentItem
+    ? adjustType === 'add'
+      ? currentItem.currentStock + numericQty
+      : adjustType === 'remove'
+      ? Math.max(0, currentItem.currentStock - numericQty)
+      : numericQty
     : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
-              <RotateCcw className="w-4 h-4" />
+        <div className="px-6 py-4.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <Package className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">Stock Adjustment</h3>
-              <p className="text-[11px] text-slate-400">Record cycle count, shop scrap, or physical count correction</p>
+              <h3 className="text-sm font-bold text-slate-900">Adjust Physical Stock</h3>
+              <p className="text-xs text-slate-400">Manual stock in for local supplier deliveries or stocktake cycle counts</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800">
+          <button 
+            onClick={onClose}
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -90,58 +92,60 @@ export const StockAdjustModal: React.FC<StockAdjustModalProps> = ({
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
           
-          {/* Select Item */}
           <div>
-            <label className="block text-slate-300 font-semibold mb-1">Target Item</label>
+            <label className="block font-semibold text-slate-700 mb-1.5">
+              Select Item *
+            </label>
             <select
               value={selectedItemId}
-              onChange={e => setSelectedItemId(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+              onChange={(e) => setSelectedItemId(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-hidden focus:border-indigo-500"
+              required
             >
               {inventory.map(item => (
                 <option key={item.id} value={item.id}>
-                  [{item.sku}] {item.name} (Current: {item.currentStock} {item.unit})
+                  {item.sku} - {item.name} (Stock: {item.currentStock} {item.unit})
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Adjustment Mode */}
           <div>
-            <label className="block text-slate-300 font-semibold mb-1">Adjustment Type</label>
+            <label className="block font-semibold text-slate-700 mb-1.5">Adjustment Type</label>
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setAdjustType('add')}
-                className={`py-2 px-3 rounded-lg font-bold border transition text-center ${
+                className={`py-2 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all ${
                   adjustType === 'add'
-                    ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500'
-                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                + Add Units
+                <Plus className="w-3.5 h-3.5" />
+                <span>Stock In (+)</span>
               </button>
+
               <button
                 type="button"
                 onClick={() => setAdjustType('remove')}
-                className={`py-2 px-3 rounded-lg font-bold border transition text-center ${
+                className={`py-2 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all ${
                   adjustType === 'remove'
-                    ? 'bg-rose-600/20 text-rose-300 border-rose-500'
-                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                − Deduct Units
+                <Minus className="w-3.5 h-3.5" />
+                <span>Stock Out (-)</span>
               </button>
+
               <button
                 type="button"
-                onClick={() => {
-                  setAdjustType('set_absolute');
-                  if (currentItem) setQuantityValue(currentItem.currentStock);
-                }}
-                className={`py-2 px-3 rounded-lg font-bold border transition text-center ${
+                onClick={() => setAdjustType('set_absolute')}
+                className={`py-2 px-3 rounded-xl font-bold transition-all ${
                   adjustType === 'set_absolute'
-                    ? 'bg-cyan-600/20 text-cyan-300 border-cyan-500'
-                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
+                    ? 'bg-[#1e2738] text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 Set Exact Count
@@ -149,81 +153,66 @@ export const StockAdjustModal: React.FC<StockAdjustModalProps> = ({
             </div>
           </div>
 
-          {/* Quantity */}
-          <div>
-            <label className="block text-slate-300 font-semibold mb-1">
-              {adjustType === 'set_absolute' ? 'New Physical Count' : 'Units to Adjust'} ({currentItem?.unit})
-            </label>
-            <input
-              type="number"
-              min="0"
-              value={quantityValue}
-              onChange={e => setQuantityValue(Math.max(0, parseInt(e.target.value) || 0))}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono font-bold text-white focus:outline-none focus:border-cyan-500"
-              required
-            />
-          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1.5">
+                {adjustType === 'set_absolute' ? 'New Exact Stock' : 'Units to Adjust'} *
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={quantityValue}
+                onChange={(e) => setQuantityValue(e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 font-bold focus:outline-hidden focus:border-indigo-500"
+                required
+              />
+            </div>
 
-          {/* Result Preview Box */}
-          {currentItem && (
-            <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 flex items-center justify-between text-xs">
-              <div>
-                <span className="text-slate-400 block">Current Stock:</span>
-                <span className="font-mono font-bold text-slate-200">
-                  {currentItem.currentStock.toLocaleString()} {currentItem.unit}
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-slate-400 block">New Balance After:</span>
-                <span className="font-mono font-bold text-emerald-400 text-sm">
-                  {resultingBalance.toLocaleString()} {currentItem.unit}
-                </span>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1.5">New Stock Preview</label>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono font-bold text-indigo-700 flex items-center justify-between">
+                <span>{currentItem?.currentStock} &rarr;</span>
+                <span className="text-slate-900 text-base">{resultingStock} {currentItem?.unit}</span>
               </div>
             </div>
-          )}
-
-          {/* Reason Code */}
-          <div>
-            <label className="block text-slate-300 font-semibold mb-1">Audit Reason Category</label>
-            <select
-              value={reasonCode}
-              onChange={e => setReasonCode(e.target.value as any)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
-            >
-              <option value="cycle_count">Cycle Count Discrepancy</option>
-              <option value="scrap_waste">Heat Press Breakage / Scrap Waste</option>
-              <option value="manual_adjustment">Physical Audit Adjustment</option>
-              <option value="order_dispatch">Sample / Test Print Deduct</option>
-              <option value="po_receipt">Unrecorded Inbound Delivery</option>
-            </select>
           </div>
 
-          {/* Notes */}
-          <div>
-            <label className="block text-slate-300 font-semibold mb-1">Audit Notes / Explanation</label>
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="e.g. Discovered unopened master carton during weekly shelf cycle count"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1.5">Operator</label>
+              <input
+                type="text"
+                value={operatorName}
+                onChange={(e) => setOperatorName(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1.5">Reason / Justification</label>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-indigo-500"
+              />
+            </div>
           </div>
 
-          {/* Footer */}
-          <div className="pt-3 border-t border-slate-800 flex items-center justify-end space-x-3">
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-lg transition"
+              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition shadow-md shadow-cyan-600/30"
+              disabled={isSubmitting}
+              className="px-5 py-2 rounded-xl bg-[#1e2738] hover:bg-slate-800 text-white font-bold shadow-md shadow-slate-900/10 disabled:opacity-50"
             >
-              Commit Adjustment
+              {isSubmitting ? 'Updating...' : 'Confirm Adjustment'}
             </button>
           </div>
 

@@ -1,264 +1,329 @@
 import React, { useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
-import { PurchaseOrder, POStatus } from '../../types';
+import { InboundShipment } from '../../types';
 import { 
   Ship, 
   Plus, 
   CheckCircle2, 
-  MapPin, 
-  Anchor, 
   Clock, 
-  DollarSign, 
-  FileText, 
+  Anchor, 
   Truck, 
-  AlertCircle 
+  RefreshCw,
+  Boxes,
+  Package,
+  TrendingUp,
+  MoreHorizontal,
+  Compass,
+  Building2,
+  Calendar,
+  Layers,
+  ArrowRight
 } from 'lucide-react';
+import { NewShipmentModal } from '../modals/NewShipmentModal';
 
-interface ShipmentsViewProps {
-  onOpenCreatePO: () => void;
-}
+export const ShipmentsView: React.FC = () => {
+  const { shipments, receiveShipment } = useInventory();
+  const [isNewShipmentOpen, setIsNewShipmentOpen] = useState(false);
+  const [receivingId, setReceivingId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ id: string; message: string } | null>(null);
 
-export const ShipmentsView: React.FC<ShipmentsViewProps> = ({ onOpenCreatePO }) => {
-  const { purchaseOrders, updatePOStatus, receivePurchaseOrder } = useInventory();
-  const [selectedStatus, setSelectedStatus] = useState<POStatus | 'all'>('all');
-
-  const filteredOrders = purchaseOrders.filter(po => {
-    if (selectedStatus === 'all') return true;
-    return po.status === selectedStatus;
-  });
-
-  const getStatusBadge = (status: POStatus) => {
-    switch (status) {
-      case 'draft':
-        return <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-slate-800 text-slate-300 border border-slate-700">Draft PO</span>;
-      case 'ordered':
-        return <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">Order Placed</span>;
-      case 'in_transit':
-        return <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 animate-pulse">At Sea (Transit)</span>;
-      case 'customs_clearance':
-        return <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">Customs Clearance</span>;
-      case 'received':
-        return <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Received & Stocked</span>;
-      case 'cancelled':
-        return <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">Cancelled</span>;
+  const handleReceive = async (shipmentId: string) => {
+    setReceivingId(shipmentId);
+    const res = await receiveShipment(shipmentId);
+    setReceivingId(null);
+    if (res.success) {
+      setFeedback({ id: shipmentId, message: res.message });
+      setTimeout(() => setFeedback(null), 4000);
     }
   };
 
+  const getStatusBadge = (status: InboundShipment['status']) => {
+    switch (status) {
+      case 'on_water':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+            On Water (Ocean Transit)
+          </span>
+        );
+      case 'customs_clearance':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+            UK Customs Clearance
+          </span>
+        );
+      case 'received_warehouse':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            Received in Warehouse
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+            Order Confirmed
+          </span>
+        );
+    }
+  };
+
+  const totalInTransitValue = shipments
+    .filter(s => s.status !== 'received_warehouse')
+    .reduce((sum, s) => sum + (s.totalLandedGBP || 0), 0);
+
+  const totalInTransitUnits = shipments
+    .filter(s => s.status !== 'received_warehouse')
+    .reduce((sum, s) => sum + s.items.reduce((acc, it) => acc + (it.quantity || 0), 0), 0);
+
   return (
-    <div id="shipments-view-container" className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12">
       
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-xl p-5">
+      {/* Top Banner Card & Summary */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-[0_2px_12px_rgba(0,0,0,0.03)] flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Ship className="w-5 h-5 text-cyan-400" />
-            Inbound Containers & Ocean Freight Procurement
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Track 45-day ocean transit from China, calculate true landed unit costs, and automate warehouse stock put-away
+          <div className="flex items-center space-x-2.5 mb-1.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
+              <Ship className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-xl font-extrabold text-slate-900 font-heading">
+                Ocean Containers & Landed Cost Calculator
+              </h2>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500 max-w-2xl font-medium">
+            True landed cost engine allocating 40ft HQ ocean freight ($4,200), HMRC duty (6.5%), and port haulage across CBM volume for exact per-item UK costing.
           </p>
         </div>
 
-        <button
-          onClick={onOpenCreatePO}
-          className="px-4 py-2 text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition shadow-md shadow-cyan-600/30 flex items-center gap-1.5 self-start sm:self-center"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Purchase Order</span>
-        </button>
-      </div>
+        <div className="flex items-center space-x-3 self-start md:self-auto">
+          <div className="hidden sm:block text-right pr-2">
+            <div className="text-[10px] text-slate-400 font-semibold uppercase">Inbound Pipeline</div>
+            <div className="text-sm font-extrabold text-slate-900 font-mono">
+              £{totalInTransitValue.toLocaleString('en-GB', { minimumFractionDigits: 2 })}
+            </div>
+          </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center space-x-1 overflow-x-auto bg-slate-900 border border-slate-800 p-1.5 rounded-xl">
-        {(['all', 'in_transit', 'customs_clearance', 'ordered', 'received'] as const).map(tab => (
           <button
-            key={tab}
-            onClick={() => setSelectedStatus(tab as any)}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold capitalize transition whitespace-nowrap ${
-              selectedStatus === tab
-                ? 'bg-cyan-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
+            onClick={() => setIsNewShipmentOpen(true)}
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-95 cursor-pointer"
           >
-            {tab.replace('_', ' ')}
+            <Plus className="w-4 h-4 text-indigo-200" />
+            <span>New China Shipment</span>
           </button>
-        ))}
+        </div>
       </div>
 
       {/* Shipments List */}
-      <div className="space-y-5">
-        {filteredOrders.map(po => {
-          const percent = Math.min(100, Math.round((po.transitDaysElapsed / po.transitDaysTotal) * 100));
-          const totalUnits = po.lines.reduce((s, l) => s + l.quantityOrdered, 0);
+      <div className="space-y-6">
+        {shipments.length === 0 ? (
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-12 text-center text-slate-400 text-sm">
+            No shipments recorded yet. Click "New China Shipment" to log an inbound container.
+          </div>
+        ) : (
+          shipments.map(shp => {
+            const isReceived = shp.status === 'received_warehouse';
+            const isOnWater = shp.status === 'on_water';
+            const isCustoms = shp.status === 'customs_clearance';
 
-          return (
-            <div key={po.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-              
-              {/* Top Row: PO number, Supplier, Status */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex items-center justify-center">
-                    <Ship className="w-5 h-5" />
-                  </div>
+            const totalUnits = shp.items.reduce((s, it) => s + (it.quantity || 0), 0);
+            const totalCBM = shp.items.reduce((s, it) => s + (it.cbmTotal || 0), 0);
+
+            return (
+              <div 
+                key={shp.id}
+                className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-[0_2px_12px_rgba(0,0,0,0.03)] hover:shadow-md transition-all space-y-5"
+              >
+                {/* Header */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                   <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-mono text-sm font-bold text-white">{po.poNumber}</span>
-                      {po.containerNumber && (
-                        <span className="px-2 py-0.5 text-xs font-mono bg-slate-800 text-cyan-300 rounded border border-slate-700">
-                          {po.containerNumber}
-                        </span>
-                      )}
-                      {getStatusBadge(po.status)}
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <span className="font-extrabold text-slate-900 text-lg font-heading">{shp.shipmentRef}</span>
+                      <span className="text-xs font-mono font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200/60">
+                        {shp.containerNumber}
+                      </span>
+                      {getStatusBadge(shp.status)}
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Supplier: <strong className="text-slate-200">{po.supplierName}</strong> ({po.supplierCountry}) | Method: <span className="text-slate-300">{po.shippingMethod}</span>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-2 self-end sm:self-center">
-                  {po.status !== 'received' ? (
-                    <button
-                      onClick={() => receivePurchaseOrder(po.id)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition shadow-md shadow-emerald-600/20 flex items-center gap-1.5"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Receive Shipment & Stock</span>
-                    </button>
-                  ) : (
-                    <div className="px-3 py-1.5 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 text-xs font-bold rounded-lg flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Put-Away Completed on {po.receivedDate}</span>
+                    <div className="text-xs text-slate-500 mt-2 flex flex-wrap items-center gap-3 font-medium">
+                      <span className="flex items-center gap-1">
+                        <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                        Supplier: <strong className="text-slate-800 font-semibold">{shp.supplierName}</strong>
+                      </span>
+                      <span>&bull;</span>
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                        ETA: <strong className="text-slate-800 font-semibold">{shp.etaDate || 'Pending'}</strong>
+                      </span>
+                      <span>&bull;</span>
+                      <span>Exchange Rate: <strong className="text-indigo-600 font-mono font-semibold">${shp.currencyRateUSDGBP} = £1.00</strong></span>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Ocean Transit Route & Timeline */}
-              <div className="bg-slate-800/40 rounded-xl p-4 border border-slate-800">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-2 mb-2">
-                  <div className="flex items-center gap-1.5 text-slate-300">
-                    <Anchor className="w-4 h-4 text-cyan-400" />
-                    <span>Origin: <strong>{po.originPort || 'Factory Departure'}</strong></span>
                   </div>
-                  <div className="text-center font-semibold text-cyan-300">
-                    Day {po.transitDaysElapsed} of {po.transitDaysTotal} ({percent}% Completed)
+
+                  {/* Actions */}
+                  <div>
+                    {isReceived ? (
+                      <span className="px-4 py-2.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200/80 text-xs font-semibold flex items-center gap-2 shadow-2xs">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Stock Received & Added to Inventory</span>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleReceive(shp.id)}
+                        disabled={receivingId === shp.id}
+                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-700/20 transition-all flex items-center gap-2 disabled:opacity-50 active:scale-95 cursor-pointer"
+                      >
+                        {receivingId === shp.id ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Boxes className="w-4 h-4" />
+                        )}
+                        <span>Receive Container into Stock</span>
+                      </button>
+                    )}
                   </div>
-                  <div className="flex items-center gap-1.5 text-slate-300 sm:justify-end">
-                    <MapPin className="w-4 h-4 text-emerald-400" />
-                    <span>Destination: <strong>{po.destinationPort || 'Warehouse Dock'}</strong></span>
+                </div>
+
+                {/* Voyage Transit Progress Stepper */}
+                <div className="bg-slate-50/80 border border-slate-100 rounded-xl p-4">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">
+                    Ocean Voyage & Clearance Stepper (45-Day Lead Time)
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                    <div className="flex flex-col items-center">
+                      <div className="w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-[11px] shadow-xs">
+                        ✓
+                      </div>
+                      <span className="font-bold text-slate-800 mt-1.5 text-[11px]">Factory Ningbo</span>
+                      <span className="text-[10px] text-slate-400">Order Dispatched</span>
+                    </div>
+
+                    <div className="flex flex-col items-center">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[11px] shadow-xs ${
+                        isOnWater || isCustoms || isReceived ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        <Ship className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="font-bold text-slate-800 mt-1.5 text-[11px]">Ocean Transit</span>
+                      <span className="text-[10px] text-slate-400">Maersk 40ft HQ</span>
+                    </div>
+
+                    <div className="flex flex-col items-center">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[11px] shadow-xs ${
+                        isCustoms || isReceived ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'
+                      }`}>
+                        <Anchor className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="font-bold text-slate-800 mt-1.5 text-[11px]">UK Customs</span>
+                      <span className="text-[10px] text-slate-400">HMRC Duty & Clearance</span>
+                    </div>
+
+                    <div className="flex flex-col items-center">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[11px] shadow-xs ${
+                        isReceived ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500'
+                      }`}>
+                        <Truck className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="font-bold text-slate-800 mt-1.5 text-[11px]">PrintBerry Ops</span>
+                      <span className="text-[10px] text-slate-400">{isReceived ? 'Stock Added' : 'Pending Arrival'}</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="w-full h-3 bg-slate-700/60 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full rounded-full transition-all ${
-                      po.status === 'received' 
-                        ? 'bg-emerald-500' 
-                        : po.status === 'customs_clearance'
-                        ? 'bg-amber-400'
-                        : 'bg-gradient-to-r from-cyan-500 to-indigo-500'
-                    }`}
-                    style={{ width: `${percent}%` }}
-                  />
+                {/* Feedback */}
+                {feedback && feedback.id === shp.id && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{feedback.message}</span>
+                  </div>
+                )}
+
+                {/* 5 Cost Breakdown Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">FOB Goods Value</div>
+                    <div className="font-extrabold text-slate-900 mt-1 text-sm font-mono">${shp.totalFobUSD?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                    <div className="text-[10px] text-slate-500 font-medium mt-0.5">£{(shp.totalFobUSD / (shp.currencyRateUSDGBP || 1.28)).toFixed(2)} GBP</div>
+                  </div>
+
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Ocean Sea Freight</div>
+                    <div className="font-extrabold text-indigo-600 mt-1 text-sm font-mono">${shp.seaFreightUSD?.toFixed(2)}</div>
+                    <div className="text-[10px] text-slate-500 font-medium mt-0.5">£{(shp.seaFreightUSD / (shp.currencyRateUSDGBP || 1.28)).toFixed(2)} GBP</div>
+                  </div>
+
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">HMRC Customs Duty</div>
+                    <div className="font-extrabold text-amber-600 mt-1 text-sm font-mono">£{shp.ukCustomsDutyGBP?.toFixed(2)}</div>
+                    <div className="text-[10px] text-slate-500 font-medium mt-0.5">Tariff & Clearance</div>
+                  </div>
+
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Port & Haulage</div>
+                    <div className="font-extrabold text-slate-900 mt-1 text-sm font-mono">£{((shp.ukPortHandlingGBP || 0) + (shp.ukInlandHaulageGBP || 0)).toFixed(2)}</div>
+                    <div className="text-[10px] text-slate-500 font-medium mt-0.5">Southampton to Works</div>
+                  </div>
+
+                  <div className="bg-emerald-50/80 p-3.5 rounded-xl border border-emerald-200/80 shadow-2xs col-span-2 sm:col-span-1">
+                    <div className="text-[10px] text-emerald-800 font-bold uppercase">Total Landed Investment</div>
+                    <div className="font-extrabold text-emerald-800 text-base mt-1 font-mono">£{shp.totalLandedGBP?.toLocaleString('en-GB', { minimumFractionDigits: 2 })}</div>
+                    <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">{totalUnits.toLocaleString()} pcs &bull; {totalCBM} CBM</div>
+                  </div>
                 </div>
 
-                <div className="flex justify-between text-[11px] text-slate-400 mt-2">
-                  <span>Ordered: {po.orderDate}</span>
-                  <span>Vessel: <strong className="text-slate-200">{po.vesselName || 'Ocean Container Line'}</strong></span>
-                  <span>Expected Dock ETA: <strong className="text-cyan-300">{po.expectedDeliveryDate}</strong></span>
-                </div>
-              </div>
+                {/* Manifest Table */}
+                <div className="border border-slate-200/80 rounded-xl overflow-hidden">
+                  <div className="bg-slate-50/80 px-4 py-2.5 text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between border-b border-slate-200">
+                    <span>Manifest Items & Landed Cost Allocation ({shp.costAllocationMethod?.toUpperCase()}):</span>
+                    <span className="text-indigo-600 font-semibold normal-case">True landed unit cost is updated on receipt</span>
+                  </div>
 
-              {/* Items & Landed Cost Financial Breakdown */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
-                
-                {/* Cargo Manifest Lines */}
-                <div className="lg:col-span-2 bg-slate-800/30 rounded-xl p-4 border border-slate-800">
-                  <h4 className="text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-2.5">
-                    Cargo Manifest & Landed Cost Explosion
-                  </h4>
-
-                  <table className="w-full text-left">
-                    <thead className="text-[10px] text-slate-400 border-b border-slate-700 pb-1 uppercase">
-                      <tr>
-                        <th className="pb-1.5">Item / SKU</th>
-                        <th className="pb-1.5 text-right">Quantity</th>
-                        <th className="pb-1.5 text-right">FOB Unit</th>
-                        <th className="pb-1.5 text-right">Freight+Duty</th>
-                        <th className="pb-1.5 text-right">Landed Unit</th>
-                        <th className="pb-1.5 text-right">Line Total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800">
-                      {po.lines.map((line, idx) => (
-                        <tr key={idx}>
-                          <td className="py-2">
-                            <div className="font-semibold text-white">{line.name}</div>
-                            <div className="font-mono text-[10px] text-slate-400">{line.sku}</div>
-                          </td>
-                          <td className="py-2 text-right font-mono font-bold text-white">
-                            {line.quantityOrdered.toLocaleString()}
-                          </td>
-                          <td className="py-2 text-right font-mono text-slate-300">
-                            ${line.unitFobPrice.toFixed(2)}
-                          </td>
-                          <td className="py-2 text-right font-mono text-amber-300">
-                            +${(line.allocatedFreight + line.allocatedDuty).toFixed(3)}
-                          </td>
-                          <td className="py-2 text-right font-mono font-bold text-emerald-300">
-                            ${line.landedUnitCost.toFixed(3)}
-                          </td>
-                          <td className="py-2 text-right font-mono font-bold text-slate-100">
-                            ${line.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-700">
+                      <thead className="bg-white border-b border-slate-200 text-[11px] text-slate-400 uppercase font-semibold">
+                        <tr>
+                          <th className="px-4 py-2.5 font-semibold">SKU & Item Name</th>
+                          <th className="px-4 py-2.5 font-semibold">Quantity</th>
+                          <th className="px-4 py-2.5 font-semibold">FOB Unit ($)</th>
+                          <th className="px-4 py-2.5 font-semibold">Volume (CBM)</th>
+                          <th className="px-4 py-2.5 font-semibold">Allocated Freight & Duty</th>
+                          <th className="px-4 py-2.5 font-semibold text-right">True Unit Landed (£)</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Landed Cost Breakdown */}
-                <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/60 flex flex-col justify-between">
-                  <div>
-                    <h4 className="text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-2.5">
-                      Cost Allocation Breakdown
-                    </h4>
-
-                    <div className="space-y-2 text-slate-300">
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">FOB Goods Value:</span>
-                        <strong className="font-mono">${po.costBreakdown.fobTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Ocean Freight:</span>
-                        <strong className="font-mono">${po.costBreakdown.oceanFreight.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Customs Duty & Tariffs:</span>
-                        <strong className="font-mono">${po.costBreakdown.tariffsDuty.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Port Drayage & Handling:</span>
-                        <strong className="font-mono">${po.costBreakdown.portDrayage.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-700 flex items-center justify-between">
-                    <span className="font-bold text-slate-200">Total Landed Cost:</span>
-                    <span className="font-mono text-base font-bold text-emerald-400">
-                      ${po.costBreakdown.totalLandedCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </span>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-mono text-[12px]">
+                        {shp.items.map((it, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/60">
+                            <td className="px-4 py-3 font-sans font-medium text-slate-900">
+                              <div className="font-bold font-mono">{it.sku}</div>
+                              <div className="text-[11px] text-slate-500 font-sans">{it.name}</div>
+                            </td>
+                            <td className="px-4 py-3 font-bold text-slate-900">{it.quantity?.toLocaleString()} pcs</td>
+                            <td className="px-4 py-3 text-slate-600">${it.unitPriceUSD?.toFixed(2)}</td>
+                            <td className="px-4 py-3 text-slate-500">{it.cbmTotal} m³</td>
+                            <td className="px-4 py-3 text-slate-500">£{it.allocatedFreightAndFeesGBP?.toFixed(2)}</td>
+                            <td className="px-4 py-3 text-right">
+                              <span className="font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/80 px-2.5 py-1 rounded-lg">
+                                £{it.unitLandedGBP?.toFixed(2)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
 
               </div>
-
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
+
+      <NewShipmentModal
+        isOpen={isNewShipmentOpen}
+        onClose={() => setIsNewShipmentOpen(false)}
+      />
 
     </div>
   );

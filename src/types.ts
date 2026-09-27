@@ -1,26 +1,13 @@
 export type ActiveView = 
   | 'dashboard'
   | 'inventory'
-  | 'bom'
-  | 'production'
   | 'shipments'
-  | 'orders'
-  | 'forecasting'
-  | 'audit_log'
-  | 'reference_architecture';
+  | 'xero'
+  | 'ecommerce'
+  | 'bom'
+  | 'movements';
 
-export type ItemCategory = 'raw_material' | 'consumable' | 'packaging' | 'finished_goods';
-
-export interface Supplier {
-  id: string;
-  name: string;
-  country: string;
-  leadTimeDays: number;
-  contactEmail: string;
-  currency: string;
-  reliabilityScore: number;
-  paymentTerms: string;
-}
+export type ItemCategory = 'blank' | 'packaging' | 'consumable' | 'finished_goods';
 
 export interface InventoryItem {
   id: string;
@@ -31,195 +18,345 @@ export interface InventoryItem {
   currentStock: number;
   reservedStock: number;
   minSafetyStock: number;
-  maxStock: number;
   reorderPoint: number;
   leadTimeDays: number;
-  costPerUnit: number; // Standard / FOB cost
-  landedCostPerUnit: number; // True landed cost
+  fobCostUSD?: number;
+  costPerUnit: number; // Standard / FOB cost GBP
+  landedCostPerUnit: number; // True landed cost GBP
+  cbmPerUnit?: number;
+  weightKgPerUnit?: number;
   location: string;
-  supplierId: string;
   supplierName: string;
-  barcode: string;
-  dailyBurnRate: number; // units consumed or sold per day
-  description?: string;
-  lastRestockedAt: string;
+  barcode?: string;
+  dailyBurnRate?: number;
+  lastRestockedAt?: string;
   updatedAt: string;
 }
 
-export interface BOMIngredient {
-  itemId: string;
-  itemName: string;
-  sku: string;
-  category: ItemCategory;
-  quantityRequired: number;
-  unit: string;
-  unitCost: number;
-  scrapRatePercent: number; // e.g. 2.5% defect/scrap
-  allowSubstitute?: boolean;
-}
-
-export interface BillOfMaterials {
+export interface RecipeBOM {
   id: string;
   name: string;
-  finishedGoodsSku: string;
-  finishedGoodsItemId: string;
-  description: string;
-  outputQuantity: number; // e.g. 1
-  ingredients: BOMIngredient[];
-  laborCostPerUnit: number;
-  overheadCostPerUnit: number;
+  code: string;
+  blankItemId: string;
+  blankSku?: string;
+  blankName?: string;
+  blankLandedCost?: number;
+  blankCurrentStock?: number;
+  packagingItemId?: string;
+  packagingSku?: string;
+  packagingName?: string;
+  packagingCost?: number;
+  packagingCurrentStock?: number;
+  consumablesCost: number;
+  scrapRatePercent: number;
   targetSellPrice: number;
+  totalEstimatedUnitCost?: number;
+  profitMarginGBP?: number;
+  profitMarginPercent?: number;
   notes?: string;
   updatedAt: string;
 }
 
-export type ProductionStatus = 'scheduled' | 'in_progress' | 'quality_check' | 'completed' | 'cancelled';
-
-export interface ProductionOrder {
-  id: string;
-  orderNumber: string; // e.g. 'JOB-2026-104'
-  customerName?: string;
-  bomId: string;
-  bomName: string;
-  finishedGoodsItemId: string;
-  finishedGoodsName: string;
-  targetQuantity: number;
-  completedQuantity: number;
-  scrapQuantity: number;
-  status: ProductionStatus;
-  machineLine: string; // e.g. 'Station A - 4-Head Pneumatic Press'
-  operatorName: string;
-  scheduledDate: string;
-  dueDate: string;
-  completedDate?: string;
-  notes?: string;
-  materialAllocations: {
-    itemId: string;
-    itemName: string;
-    unit: string;
-    requiredTotal: number;
-    allocatedTotal: number;
-    actualUsed: number;
-    actualScrap: number;
-  }[];
-}
-
-export type POStatus = 'draft' | 'ordered' | 'in_transit' | 'customs_clearance' | 'received' | 'cancelled';
-
-export interface POLineItem {
-  itemId: string;
-  sku: string;
-  name: string;
-  quantityOrdered: number;
-  quantityReceived?: number;
-  unitFobPrice: number;
-  allocatedFreight: number;
-  allocatedDuty: number;
-  landedUnitCost: number;
-  totalCost: number;
-}
-
-export interface PurchaseOrder {
-  id: string;
-  poNumber: string; // e.g. 'PO-CN-8902'
-  supplierId: string;
-  supplierName: string;
-  supplierCountry: string;
-  status: POStatus;
-  orderDate: string;
-  expectedDeliveryDate: string;
-  receivedDate?: string;
-  shippingMethod: string; // e.g. 'Ocean Container 40ft HQ'
-  containerNumber?: string;
-  vesselName?: string;
-  originPort?: string;
-  destinationPort?: string;
-  transitDaysTotal: number;
-  transitDaysElapsed: number;
-  lines: POLineItem[];
-  costBreakdown: {
-    fobTotal: number;
-    oceanFreight: number;
-    tariffsDuty: number;
-    portDrayage: number;
-    totalLandedCost: number;
-  };
-  notes?: string;
-}
-
-export type OrderStatus = 'draft' | 'approved' | 'in_production' | 'dispatched' | 'paid';
-
-export interface SalesOrderItem {
+export interface ShipmentItem {
   itemId: string;
   sku: string;
   name: string;
   quantity: number;
-  unitPrice: number;
-  lineTotal: number;
-  estimatedUnitCost: number;
-  estimatedMargin: number;
+  unitPriceUSD: number;
+  totalFOBUSD: number;
+  cbmTotal: number;
+  weightKgTotal: number;
+  allocatedFreightAndFeesGBP?: number;
+  totalLandedGBP?: number;
+  unitLandedGBP?: number;
 }
 
-export interface SalesOrder {
+export interface InboundShipment {
   id: string;
-  orderNumber: string; // e.g. 'SO-XERO-10492'
-  customerName: string;
-  customerEmail: string;
-  status: OrderStatus;
-  xeroSyncStatus: 'synced' | 'pending' | 'error';
-  xeroInvoiceId?: string;
-  items: SalesOrderItem[];
-  subtotal: number;
-  tax: number;
-  total: number;
-  estimatedCOGS: number;
-  estimatedGrossProfit: number;
-  estimatedGrossMarginPercent: number;
-  stockDeducted: boolean;
+  shipmentRef: string;
+  containerNumber: string;
+  supplierName: string;
+  departureDate: string;
+  etaDate: string;
+  status: 'ordered' | 'on_water' | 'customs_clearance' | 'received_warehouse' | 'cancelled';
+  currencyRateUSDGBP: number;
+  seaFreightUSD: number;
+  ukCustomsDutyGBP: number;
+  ukPortHandlingGBP: number;
+  ukInlandHaulageGBP: number;
+  unloadingLaborGBP: number;
+  costAllocationMethod: 'cbm' | 'weight' | 'value';
+  totalFobUSD: number;
+  totalLandedGBP: number;
+  items: ShipmentItem[];
+  receivedAt?: string | null;
   createdAt: string;
-  dueAt: string;
-  notes?: string;
+}
+
+export interface XeroInvoiceLine {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  matchedRecipeId?: string | null;
+  matchedBlankId?: string | null;
+  matchedBlankSku?: string | null;
+  matchedBlankName?: string | null;
+  matchedBlankStock?: number;
+  matchedBoxId?: string | null;
+  matchedBoxSku?: string | null;
+  matchedBoxName?: string | null;
+  matchedBoxStock?: number;
+  matchConfidence: 'exact_sku' | 'keyword_high' | 'keyword_low' | 'manual' | 'none';
+  matchReason?: string;
+  /** Operator marked this line as freight/setup/artwork - it never deducts. */
+  nonStock?: boolean;
+  /** Operator set the match by hand; re-sync must not overwrite it. */
+  manualMatch?: boolean;
+  estimatedLandedCost?: number;
+  grossProfit?: number;
+  deducted?: boolean;
+}
+
+export interface XeroInvoice {
+  id: string;
+  invoiceNumber: string;
+  customerName: string;
+  invoiceDate: string;
+  dueDate: string;
+  totalAmount: number;
+  currency: string;
+  status: string;
+  lineItemsJson?: string;
+  lines: XeroInvoiceLine[];
+  stockDeducted: number; // 0 = pending, 1 = deducted
+  deductedAt?: string | null;
+  totalLandedCost?: number;
+  trueGrossProfit?: number;
+  marginPercent?: number;
+  createdAt: string;
 }
 
 export type MovementType = 
-  | 'po_receipt'
-  | 'production_consume'
-  | 'production_finish'
-  | 'scrap_waste'
-  | 'order_dispatch'
-  | 'manual_adjustment'
-  | 'cycle_count';
+  | 'purchase_received' 
+  | 'xero_sale_deduct' 
+  | 'ecommerce_sale'
+  | 'manual_adjust' 
+  | 'scrap_defect' 
+  | 'stocktake';
+
+export type EcommercePlatform = 'shopify' | 'amazon' | 'ebay' | 'tiktok';
+
+export interface EcommerceOrderItem {
+  productTitle: string;
+  skuSold: string;
+  quantity: number;
+  unitPrice: number;
+  matchedBlankId?: string;
+  matchedBlankSku?: string;
+  matchedBlankName?: string;
+  matchedBoxId?: string;
+  matchedBoxSku?: string;
+  matchedBoxName?: string;
+  estimatedLandedCost?: number;
+  grossProfit?: number;
+}
+
+export interface EcommerceOrder {
+  id: string;
+  orderNumber: string;
+  platform: EcommercePlatform;
+  customerName: string;
+  orderDate: string;
+  totalAmount: number;
+  currency: string;
+  status: 'paid' | 'fulfilled' | 'cancelled';
+  items: EcommerceOrderItem[];
+  stockDeducted: number; // 0 or 1
+  deductedAt?: string | null;
+  totalLandedCost?: number;
+  grossProfit?: number;
+  marginPercent?: number;
+  createdAt: string;
+}
+
+export interface EcommerceChannelInfo {
+  id: EcommercePlatform;
+  name: string;
+  connected: boolean;
+  storeIdentifier: string;
+  webhookUrl: string;
+  ordersToday: number;
+  revenueTodayGBP: number;
+  lastOrderAt?: string;
+}
+
+export type DefectReason = 
+  | 'heat_press_breakage'
+  | 'print_misaligned'
+  | 'chipped_in_transit'
+  | 'ink_smear'
+  | 'handling_scratch'
+  | 'other';
 
 export interface StockMovement {
   id: string;
-  timestamp: string;
   itemId: string;
   sku: string;
   itemName: string;
   movementType: MovementType;
-  quantityChange: number; // positive or negative
-  previousStock: number;
-  balanceAfter: number;
-  referenceId: string; // e.g. 'PO-CN-8902', 'JOB-2026-104', 'SO-10492'
-  reason: string;
-  performedBy: string;
+  quantityDelta: number;
+  resultingStock: number;
+  unitCost: number;
+  referenceId?: string;
+  defectReason?: string;
+  operatorName?: string;
+  notes?: string;
+  createdAt: string;
 }
 
-export interface ForecastRecommendation {
-  itemId: string;
-  sku: string;
-  name: string;
-  category: ItemCategory;
-  currentStock: number;
-  dailyBurnRate: number;
-  daysOfSupplyRemaining: number;
-  leadTimeDays: number;
-  reorderPoint: number;
-  stockoutDate: string;
-  mustOrderByDate: string;
-  recommendedOrderQuantity: number;
-  recommendedContainerType: string;
-  urgency: 'critical' | 'warning' | 'healthy';
-  projectedCost: number;
-  primarySupplier: string;
+export interface XeroStatus {
+  connected: boolean;
+  mode: string;
+  organisationName: string;
+  apiCallsToday: number;
+  dailyCallLimit: number;
+  rateLimitRemaining: number;
+  isFreeTier: boolean;
+  lastSyncTimestamp: string;
+  tenantId?: string | null;
+  hasCredentials?: boolean;
+  clientId?: string | null;
+}
+
+export interface XeroOAuthStatus {
+  hasCredentials: boolean;
+  clientId: string;
+  redirectUri?: string;
+  connected: boolean;
+  tenantName: string;
+  tenantId: string;
+  connectedAt: string | null;
+  tokenExpiresAt: string | null;
+}
+
+export interface ValuationPoint {
+  label: string;
+  date: string;
+  valuation: number;
+}
+
+export interface ValuationHistory {
+  points: ValuationPoint[];
+  movementCount: number;
+  hasHistory: boolean;
+  /** Month-over-month change, or null when there is no baseline to compare against. */
+  changePercent: number | null;
+}
+
+export type XeroSyncMode = 'recent' | 'date' | 'range' | 'all';
+
+export interface XeroSyncOptions {
+  mode: XeroSyncMode;
+  /** Used when mode is 'recent' - how many of the newest invoices to fetch. */
+  limit?: number;
+  /** Used when mode is 'date' - a single YYYY-MM-DD day. */
+  date?: string;
+  /** Used when mode is 'range' - inclusive YYYY-MM-DD bounds. */
+  fromDate?: string;
+  toDate?: string;
+}
+
+export interface XeroLineEdit {
+  index: number;
+  blankItemId?: string | null;
+  packagingItemId?: string | null;
+  quantity?: number;
+  unitPrice?: number;
+  nonStock?: boolean;
+}
+
+export interface XeroContact { contactId: string; name: string; email?: string | null; defaultAccountCode?: string | null; }
+export interface XeroAccount { accountId: string; code: string; name: string; type?: string | null; taxType?: string | null; }
+export interface XeroTaxRate { taxType: string; name: string; rate: number; }
+
+export interface XeroReference {
+  contacts: XeroContact[];
+  accounts: XeroAccount[];
+  taxRates: XeroTaxRate[];
+  lastSyncedAt: string | null;
+}
+
+export interface XeroInvoiceSettings {
+  descriptionTemplate: string;
+  shippingTemplate: string;
+  defaultAccountCode: string | null;
+  defaultTaxType: string | null;
+  defaultDueDays: number;
+  lineAmountTypes: 'Exclusive' | 'Inclusive' | 'NoTax';
+}
+
+export type XeroPushLineKind = 'product' | 'shipping' | 'custom';
+
+export interface XeroPushLine {
+  kind: XeroPushLineKind;
+  description?: string;
+  poNumber?: string;
+  orderNumber?: string;
+  salesRep?: string;
+  productDescription?: string;
+  carrier?: string;
+  trackingNumber?: string;
+  quantity: number;
+  unitPrice: number;
+  accountCode?: string;
+  taxType?: string;
+  blankItemId?: string | null;
+  packagingItemId?: string | null;
+}
+
+export interface XeroPushPayload {
+  contactId: string;
+  reference?: string;
+  invoiceDate?: string;
+  dueDate?: string;
+  status: 'DRAFT' | 'AUTHORISED';
+  lineAmountTypes?: string;
+  deductStock?: boolean;
+  lines: XeroPushLine[];
+}
+
+export interface XeroPushResult {
+  success: boolean;
+  message: string;
+  invoiceNumber?: string;
+  xeroInvoiceId?: string;
+  total?: number;
+  status?: string;
+}
+
+export type ImportMode = 'catalogue' | 'stocktake';
+
+export interface ImportRow {
+  rowNumber: number;
+  values: Record<string, any>;
+  errors: string[];
+  warnings: string[];
+  action: 'create' | 'update' | 'skip';
+  existingId?: string;
+}
+
+export interface ImportPreview {
+  mode: ImportMode;
+  filename: string;
+  sheetNames: string[];
+  sheetUsed: string | null;
+  headers: string[];
+  recognisedFields: string[];
+  ignoredColumns: string[];
+  totalRows: number;
+  toCreate: number;
+  toUpdate: number;
+  toSkip: number;
+  withWarnings: number;
+  rows: ImportRow[];
 }

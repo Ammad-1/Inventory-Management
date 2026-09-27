@@ -4,194 +4,229 @@ import { MovementType } from '../../types';
 import { 
   History, 
   Search, 
-  Filter, 
-  Download, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  RotateCcw,
-  CheckCircle2,
-  Trash2
+  Trash2, 
+  CheckCircle2, 
+  Package, 
+  MoreHorizontal,
+  X,
+  FileText,
+  Ship,
+  SlidersHorizontal,
+  TrendingDown,
+  TrendingUp
 } from 'lucide-react';
 
 export const AuditLogView: React.FC = () => {
-  const { stockMovements } = useInventory();
+  const { movements } = useInventory();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedType, setSelectedType] = useState<MovementType | 'all'>('all');
+  const [filterType, setFilterType] = useState<MovementType | 'all'>('all');
 
-  const filteredMovements = stockMovements.filter(m => {
-    if (selectedType !== 'all' && m.movementType !== selectedType) return false;
+  const filteredMovements = movements.filter(m => {
+    if (filterType !== 'all' && m.movementType !== filterType) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchSku = m.sku.toLowerCase().includes(q);
       const matchName = m.itemName.toLowerCase().includes(q);
-      const matchRef = m.referenceId.toLowerCase().includes(q);
-      const matchReason = m.reason.toLowerCase().includes(q);
-      const matchActor = m.performedBy.toLowerCase().includes(q);
-      if (!matchSku && !matchName && !matchRef && !matchReason && !matchActor) return false;
+      const matchRef = (m.referenceId || '').toLowerCase().includes(q);
+      const matchOperator = (m.operatorName || '').toLowerCase().includes(q);
+      const matchReason = (m.defectReason || '').toLowerCase().includes(q);
+      return matchSku || matchName || matchRef || matchOperator || matchReason;
     }
     return true;
   });
 
   const getMovementBadge = (type: MovementType) => {
     switch (type) {
-      case 'po_receipt':
-        return <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">PO Receipt</span>;
-      case 'production_consume':
-        return <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Press Consumption</span>;
-      case 'production_finish':
-        return <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Finished Output</span>;
-      case 'scrap_waste':
-        return <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">Scrap / Defect</span>;
-      case 'order_dispatch':
-        return <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">Order Dispatch</span>;
-      case 'manual_adjustment':
-        return <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Manual Adjust</span>;
-      case 'cycle_count':
-        return <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">Cycle Count</span>;
+      case 'purchase_received':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-blue-50 text-blue-700 border border-blue-200/60">
+            <Ship className="w-3 h-3 text-blue-500" />
+            China Import
+          </span>
+        );
+      case 'xero_sale_deduct':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+            <FileText className="w-3 h-3 text-emerald-500" />
+            Xero Sale
+          </span>
+        );
+      case 'scrap_defect':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-rose-50 text-rose-700 border border-rose-200/60">
+            <Trash2 className="w-3 h-3 text-rose-500" />
+            Press Scrap
+          </span>
+        );
+      case 'manual_adjust':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-purple-50 text-purple-700 border border-purple-200/60">
+            Manual Adjust
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-slate-100 text-slate-700 border border-slate-200/60">
+            Stocktake
+          </span>
+        );
     }
   };
 
-  const exportCSV = () => {
-    const headers = ['Timestamp', 'SKU', 'Item Name', 'Type', 'Change Qty', 'Balance After', 'Reference', 'Reason', 'Performed By'];
-    const rows = filteredMovements.map(m => [
-      `"${m.timestamp}"`,
-      `"${m.sku}"`,
-      `"${m.itemName}"`,
-      `"${m.movementType}"`,
-      m.quantityChange,
-      m.balanceAfter,
-      `"${m.referenceId}"`,
-      `"${m.reason}"`,
-      `"${m.performedBy}"`,
-    ]);
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `smartprint_audit_ledger_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   return (
-    <div id="audit-log-view-container" className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12">
       
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <History className="w-5 h-5 text-cyan-400" />
-            Immutable Stock Movement Audit Ledger
+      {/* Top Banner Card */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-[0_2px_12px_rgba(0,0,0,0.03)]">
+        <div className="flex items-center space-x-2.5 mb-1.5">
+          <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
+            <History className="w-4 h-4" />
+          </div>
+          <h2 className="text-xl font-extrabold text-slate-900 font-heading">
+            Stock Activity Ledger & Audit Trail
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Full compliance audit trail of container put-away receipts, production press deductions, scrap write-offs, and order dispatches
-          </p>
         </div>
-
-        <button
-          onClick={exportCSV}
-          className="px-3.5 py-2 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition flex items-center gap-1.5 self-start sm:self-center"
-        >
-          <Download className="w-4 h-4 text-cyan-400" />
-          <span>Export CSV</span>
-        </button>
+        <p className="text-xs text-slate-500 max-w-2xl font-medium">
+          Real-time, immutable audit trail recording ocean container stock receipts, automated Xero sales deductions, and press-side scrap write-offs.
+        </p>
       </div>
 
-      {/* Filter Controls */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+      {/* Filter & Search Bar */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-[0_2px_10px_rgba(0,0,0,0.03)] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+          <button
+            onClick={() => setFilterType('all')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              filterType === 'all' 
+                ? 'bg-indigo-600 text-white shadow-sm' 
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            All Movements ({movements.length})
+          </button>
+          <button
+            onClick={() => setFilterType('xero_sale_deduct')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              filterType === 'xero_sale_deduct' 
+                ? 'bg-indigo-600 text-white shadow-sm' 
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            Xero Sales
+          </button>
+          <button
+            onClick={() => setFilterType('purchase_received')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              filterType === 'purchase_received' 
+                ? 'bg-indigo-600 text-white shadow-sm' 
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            China Containers
+          </button>
+          <button
+            onClick={() => setFilterType('scrap_defect')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              filterType === 'scrap_defect' 
+                ? 'bg-indigo-600 text-white shadow-sm' 
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            Press Scrap
+          </button>
+        </div>
+
+        <div className="relative flex-1 max-w-sm">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Search by SKU, item, job/PO reference, reason, operator..."
+            placeholder="Search reference, SKU, operator, notes..."
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:bg-white focus:border-indigo-500 transition-all"
           />
-        </div>
-
-        <div className="flex items-center space-x-2 text-xs">
-          <Filter className="w-3.5 h-3.5 text-slate-400" />
-          <span className="text-slate-400">Type:</span>
-          <select
-            value={selectedType}
-            onChange={e => setSelectedType(e.target.value as any)}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
-          >
-            <option value="all">All Movements</option>
-            <option value="po_receipt">PO Receipt</option>
-            <option value="production_consume">Production Consumed</option>
-            <option value="production_finish">Finished Goods Output</option>
-            <option value="scrap_waste">Scrap & Defect Write-off</option>
-            <option value="order_dispatch">Order Fulfillment Dispatch</option>
-            <option value="manual_adjustment">Manual Adjustment</option>
-            <option value="cycle_count">Cycle Count</option>
-          </select>
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Ledger Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      {/* Movements Table */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.03)] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-slate-800/70 border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[11px]">
+            <thead className="bg-slate-50/80 border-b border-slate-200/70 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">
               <tr>
-                <th className="py-3 px-4">Timestamp</th>
-                <th className="py-3 px-4">Type</th>
-                <th className="py-3 px-4">Item SKU & Name</th>
-                <th className="py-3 px-4">Reference</th>
-                <th className="py-3 px-4 text-right">Delta Change</th>
-                <th className="py-3 px-4 text-right">Balance After</th>
-                <th className="py-3 px-4">Audit Reason & Notes</th>
-                <th className="py-3 px-4">Actor</th>
+                <th className="px-5 py-3.5 font-semibold">Date & Time</th>
+                <th className="px-4 py-3.5 font-semibold">SKU & Item Name</th>
+                <th className="px-4 py-3.5 font-semibold">Event Type</th>
+                <th className="px-4 py-3.5 font-semibold text-right">Delta (pcs)</th>
+                <th className="px-4 py-3.5 font-semibold text-right">Balance</th>
+                <th className="px-4 py-3.5 font-semibold">Reference</th>
+                <th className="px-4 py-3.5 font-semibold">Reason / Notes</th>
+                <th className="px-5 py-3.5 font-semibold text-right">Logged By</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {filteredMovements.map(m => {
-                const isPositive = m.quantityChange > 0;
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {filteredMovements.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-12 text-center text-slate-400 text-sm">
+                    No movements found matching this filter.
+                  </td>
+                </tr>
+              ) : (
+                filteredMovements.map(m => {
+                  const isPositive = m.quantityDelta > 0;
+                  return (
+                    <tr key={m.id} className="hover:bg-indigo-50/30 transition-colors">
+                      <td className="px-5 py-3.5 font-mono text-[11px] text-slate-500">
+                        {new Date(m.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
 
-                return (
-                  <tr key={m.id} className="hover:bg-slate-800/40 transition">
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-400 whitespace-nowrap">
-                      {m.timestamp}
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      {getMovementBadge(m.movementType)}
-                    </td>
-                    <td className="py-3 px-4 max-w-[200px]">
-                      <div className="font-mono text-[11px] font-bold text-cyan-300">{m.sku}</div>
-                      <div className="font-medium text-white truncate text-[11px]">{m.itemName}</div>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-indigo-300 whitespace-nowrap">
-                      {m.referenceId}
-                    </td>
-                    <td className="py-3 px-4 text-right whitespace-nowrap font-mono font-bold">
-                      <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs ${
-                        isPositive 
-                          ? 'bg-emerald-500/10 text-emerald-400' 
-                          : 'bg-rose-500/10 text-rose-400'
-                      }`}>
-                        {isPositive ? (
-                          <ArrowUpRight className="w-3 h-3" />
-                        ) : (
-                          <ArrowDownRight className="w-3 h-3" />
+                      <td className="px-4 py-3.5">
+                        <div className="font-bold text-slate-900 font-mono text-xs">{m.sku}</div>
+                        <div className="text-[11px] text-slate-500 line-clamp-1">{m.itemName}</div>
+                      </td>
+
+                      <td className="px-4 py-3.5">
+                        {getMovementBadge(m.movementType)}
+                      </td>
+
+                      <td className="px-4 py-3.5 font-mono text-right">
+                        <span className={`font-bold text-xs ${isPositive ? 'text-emerald-600' : 'text-slate-800'}`}>
+                          {isPositive ? `+${m.quantityDelta.toLocaleString()}` : m.quantityDelta.toLocaleString()}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3.5 font-mono font-extrabold text-slate-900 text-right text-xs">
+                        {m.resultingStock?.toLocaleString()}
+                      </td>
+
+                      <td className="px-4 py-3.5 font-mono font-medium text-indigo-700">
+                        {m.referenceId || '—'}
+                      </td>
+
+                      <td className="px-4 py-3.5 text-slate-600 text-[11px]">
+                        {m.defectReason && (
+                          <div className="font-bold text-rose-700 mb-0.5">
+                            Reason: {m.defectReason.replace(/_/g, ' ')}
+                          </div>
                         )}
-                        {isPositive ? `+${m.quantityChange.toLocaleString()}` : m.quantityChange.toLocaleString()}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-semibold text-slate-200 whitespace-nowrap">
-                      {m.balanceAfter.toLocaleString()}
-                    </td>
-                    <td className="py-3 px-4 text-slate-300 max-w-[260px]">
-                      {m.reason}
-                    </td>
-                    <td className="py-3 px-4 text-slate-400 whitespace-nowrap text-[11px]">
-                      {m.performedBy}
-                    </td>
-                  </tr>
-                );
-              })}
+                        <div>{m.notes || '—'}</div>
+                      </td>
+
+                      <td className="px-5 py-3.5 text-right text-slate-500 text-[11px] font-medium">
+                        {m.operatorName || 'System'}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

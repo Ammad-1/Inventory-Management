@@ -1,173 +1,120 @@
 import React from 'react';
 import { useInventory } from '../../context/InventoryContext';
+import { ActiveView } from '../../types';
 import { 
-  Boxes, 
-  AlertTriangle, 
+  LayoutDashboard, 
+  Package, 
   Ship, 
-  RotateCcw, 
-  TrendingUp, 
-  DollarSign, 
-  Plus,
-  Cpu,
-  Layers
+  FileText, 
+  ShoppingBag,
+  Layers, 
+  History, 
+  Printer,
+  User,
+  ChevronDown
 } from 'lucide-react';
 
-interface NavbarProps {
-  onQuickNewItem: () => void;
-  onQuickAdjust: () => void;
-}
+export const Navbar: React.FC = () => {
+  const { activeView, setActiveView, inventory, shipments, invoices, ecommerceOrders } = useInventory();
 
-export const Navbar: React.FC<NavbarProps> = ({ onQuickNewItem, onQuickAdjust }) => {
-  const { 
-    inventory, 
-    purchaseOrders, 
-    forecasts, 
-    productionOrders, 
-    resetToDefaultData,
-    setActiveView 
-  } = useInventory();
+  const lowStockCount = inventory.filter(i => i.currentStock <= i.reorderPoint).length;
+  const inTransitCount = shipments.filter(s => s.status === 'on_water' || s.status === 'customs_clearance').length;
+  const pendingInvoices = invoices.filter(i => i.stockDeducted === 0).length;
 
-  // Compute live metrics
-  const totalValuation = inventory.reduce((sum, item) => sum + (item.currentStock * item.landedCostPerUnit), 0);
-  const criticalStockouts = forecasts.filter(f => f.urgency === 'critical').length;
-  const inTransitContainers = purchaseOrders.filter(p => p.status === 'in_transit' || p.status === 'customs_clearance').length;
-  const activeJobs = productionOrders.filter(j => j.status === 'in_progress' || j.status === 'quality_check').length;
+  const navItems: { id: ActiveView; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number }[] = [
+    { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
+    { id: 'inventory', label: 'Stock & Blanks', icon: Package, badge: lowStockCount > 0 ? lowStockCount : undefined },
+    { id: 'shipments', label: 'Transit', icon: Ship, badge: inTransitCount > 0 ? inTransitCount : undefined },
+    { id: 'ecommerce', label: 'Online Stores', icon: ShoppingBag, badge: ecommerceOrders.length > 0 ? ecommerceOrders.length : undefined },
+    { id: 'xero', label: 'Xero Sync', icon: FileText, badge: pendingInvoices > 0 ? pendingInvoices : undefined },
+    { id: 'bom', label: 'Recipes', icon: Layers },
+    { id: 'movements', label: 'Audit Logs', icon: History },
+  ];
 
   return (
-    <header id="app-header" className="bg-slate-900 border-b border-slate-800 sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <nav className="bg-white/95 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-40 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+      <div className="max-w-[1560px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           
-          {/* Logo & Identity */}
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveView('dashboard')}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white font-bold text-lg">
-              <Boxes className="w-6 h-6 text-white" />
+          {/* Logo */}
+          <div className="flex items-center space-x-3 cursor-pointer shrink-0 group" onClick={() => setActiveView('dashboard')}>
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform">
+              <Printer className="w-4 h-4 text-white" />
             </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="font-bold text-lg text-white tracking-tight">SmartPrint <span className="text-cyan-400">IQ</span></span>
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  ERP Live
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 hidden sm:block">Print Inventory & Landed Cost Operating System</p>
+            <div className="hidden sm:block">
+              <span className="font-extrabold text-sm tracking-tight text-slate-900 flex items-center gap-1.5 font-heading">
+                PrintBerry <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md text-xs font-black">IQ</span>
+              </span>
             </div>
           </div>
 
-          {/* Key Stat Badges */}
-          <div className="hidden lg:flex items-center space-x-3">
-            {/* Inventory Valuation */}
-            <div 
-              id="stat-valuation"
-              className="flex items-center space-x-2 bg-slate-800/80 border border-slate-700/70 px-3 py-1.5 rounded-lg text-xs hover:border-slate-600 transition cursor-pointer"
-              onClick={() => setActiveView('inventory')}
-              title="Total warehouse inventory valuation at true landed cost"
-            >
-              <div className="w-6 h-6 rounded-md bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                <DollarSign className="w-3.5 h-3.5" />
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[10px] leading-tight">Valuation</span>
-                <span className="font-semibold text-slate-200">
-                  ${totalValuation.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </span>
-              </div>
-            </div>
-
-            {/* Containers at Sea */}
-            <div 
-              id="stat-containers"
-              className="flex items-center space-x-2 bg-slate-800/80 border border-slate-700/70 px-3 py-1.5 rounded-lg text-xs hover:border-slate-600 transition cursor-pointer"
-              onClick={() => setActiveView('shipments')}
-              title="Inbound ocean freight containers currently in transit"
-            >
-              <div className="w-6 h-6 rounded-md bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
-                <Ship className="w-3.5 h-3.5" />
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[10px] leading-tight">Inbound Freight</span>
-                <span className="font-semibold text-cyan-300">{inTransitContainers} Containers</span>
-              </div>
-            </div>
-
-            {/* Active Production Jobs */}
-            <div 
-              id="stat-production-jobs"
-              className="flex items-center space-x-2 bg-slate-800/80 border border-slate-700/70 px-3 py-1.5 rounded-lg text-xs hover:border-slate-600 transition cursor-pointer"
-              onClick={() => setActiveView('production')}
-              title="Active print press runs on shop floor"
-            >
-              <div className="w-6 h-6 rounded-md bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
-                <Layers className="w-3.5 h-3.5" />
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[10px] leading-tight">Active Press Jobs</span>
-                <span className="font-semibold text-indigo-300">{activeJobs} Jobs</span>
-              </div>
-            </div>
-
-            {/* Stockout Risk Alerts */}
-            {criticalStockouts > 0 ? (
-              <div 
-                id="stat-critical-alerts"
-                className="flex items-center space-x-2 bg-rose-500/10 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs hover:bg-rose-500/20 transition cursor-pointer"
-                onClick={() => setActiveView('forecasting')}
-                title="Items breaching reorder deadline considering lead time"
-              >
-                <div className="w-6 h-6 rounded-md bg-rose-500/20 text-rose-400 flex items-center justify-center">
-                  <AlertTriangle className="w-3.5 h-3.5 animate-bounce" />
-                </div>
-                <div>
-                  <span className="text-rose-400 block text-[10px] leading-tight">Reorder Alerts</span>
-                  <span className="font-bold text-rose-300">{criticalStockouts} Critical</span>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center space-x-2 bg-slate-800/50 border border-slate-700/50 px-3 py-1.5 rounded-lg text-xs text-slate-400">
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Supply Healthy</span>
-              </div>
-            )}
+          {/* Center Navigation Links */}
+          <div className="hidden md:flex items-center space-x-1.5 flex-1 justify-center overflow-x-auto px-4">
+            {navItems.map(item => {
+              const Icon = item.icon;
+              const isActive = activeView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveView(item.id)}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                    isActive 
+                      ? 'bg-indigo-50 text-indigo-700 shadow-xs border border-indigo-200/60 font-bold' 
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  <span>{item.label}</span>
+                  {item.badge !== undefined && (
+                    <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                      isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 border border-slate-200'
+                    }`}>
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center space-x-2">
-            <button
-              id="btn-quick-adjust"
-              onClick={onQuickAdjust}
-              className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition flex items-center gap-1.5"
-              title="Quick physical stock count adjustment"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden sm:inline">Adjust Stock</span>
-            </button>
-
-            <button
-              id="btn-quick-new-item"
-              onClick={onQuickNewItem}
-              className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition shadow-md shadow-indigo-600/30 flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Item</span>
-            </button>
-
-            <button
-              id="btn-reset-demo"
-              onClick={() => {
-                if (window.confirm('Reset all inventory, BOMs, orders, and jobs to clean initial demo data?')) {
-                  resetToDefaultData();
-                }
-              }}
-              className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition ml-1"
-              title="Reset to fresh demo dataset"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
+          {/* Right Profile & Actions */}
+          <div className="flex items-center space-x-3 shrink-0">
+            <div className="flex items-center space-x-2.5 p-1.5 pl-2.5 rounded-xl hover:bg-slate-50 transition-all cursor-pointer border border-slate-200/60 shadow-xs">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                PB
+              </div>
+              <div className="hidden lg:block text-left">
+                <div className="text-xs font-bold text-slate-800 leading-tight">Admin</div>
+                <div className="text-[10px] text-slate-400 font-medium leading-tight">UK Warehouse</div>
+              </div>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
+            </div>
           </div>
-
+          
         </div>
       </div>
-    </header>
+      
+      {/* Mobile Navigation (Scrollable) */}
+      <div className="md:hidden border-t border-slate-100 bg-slate-50 overflow-x-auto scrollbar-none flex">
+         {navItems.map(item => {
+            const Icon = item.icon;
+            const isActive = activeView === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveView(item.id)}
+                className={`flex items-center space-x-1.5 px-4 py-3 text-xs font-semibold whitespace-nowrap transition-all border-b-2 ${
+                  isActive 
+                    ? 'border-indigo-600 text-indigo-700 bg-white' 
+                    : 'border-transparent text-slate-500'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+      </div>
+    </nav>
   );
 };

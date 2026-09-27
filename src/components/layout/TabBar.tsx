@@ -3,14 +3,11 @@ import { useInventory } from '../../context/InventoryContext';
 import { ActiveView } from '../../types';
 import { 
   LayoutDashboard, 
-  Boxes, 
-  FlaskConical, 
-  Printer, 
+  Package, 
   Ship, 
   FileText, 
-  Sparkles, 
-  History, 
-  Network 
+  Layers, 
+  History 
 } from 'lucide-react';
 
 interface TabItem {
@@ -22,12 +19,11 @@ interface TabItem {
 }
 
 export const TabBar: React.FC = () => {
-  const { activeView, setActiveView, forecasts, purchaseOrders, productionOrders, salesOrders } = useInventory();
+  const { activeView, setActiveView, inventory, shipments, invoices } = useInventory();
 
-  const criticalAlerts = forecasts.filter(f => f.urgency === 'critical').length;
-  const inTransitCount = purchaseOrders.filter(p => p.status === 'in_transit' || p.status === 'customs_clearance').length;
-  const activeJobs = productionOrders.filter(j => j.status === 'in_progress' || j.status === 'quality_check').length;
-  const pendingOrders = salesOrders.filter(s => s.status === 'draft' || s.status === 'approved').length;
+  const lowStockCount = inventory.filter(i => i.currentStock <= i.reorderPoint).length;
+  const inTransitCount = shipments.filter(s => s.status === 'on_water' || s.status === 'customs_clearance').length;
+  const pendingInvoices = invoices.filter(i => i.stockDeducted === 0).length;
 
   const tabs: TabItem[] = [
     {
@@ -37,57 +33,40 @@ export const TabBar: React.FC = () => {
     },
     {
       id: 'inventory',
-      label: 'Inventory Catalog',
-      icon: Boxes,
-    },
-    {
-      id: 'bom',
-      label: 'BOM & Recipes',
-      icon: FlaskConical,
-    },
-    {
-      id: 'production',
-      label: 'Production Jobs',
-      icon: Printer,
-      badge: activeJobs > 0 ? activeJobs : undefined,
-      badgeColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+      label: 'Inventory Stock',
+      icon: Package,
+      badge: lowStockCount > 0 ? `${lowStockCount} Low` : undefined,
+      badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
     },
     {
       id: 'shipments',
-      label: 'Inbound Containers',
+      label: 'China Containers & Landed Cost',
       icon: Ship,
       badge: inTransitCount > 0 ? inTransitCount : undefined,
       badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
     },
     {
-      id: 'orders',
-      label: 'Sales & Invoicing',
+      id: 'xero',
+      label: 'Xero Invoicing & Sync',
       icon: FileText,
-      badge: pendingOrders > 0 ? pendingOrders : undefined,
+      badge: pendingInvoices > 0 ? `${pendingInvoices} Pending` : undefined,
       badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
     },
     {
-      id: 'forecasting',
-      label: 'AI Forecasting',
-      icon: Sparkles,
-      badge: criticalAlerts > 0 ? `${criticalAlerts} Alert` : undefined,
-      badgeColor: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
+      id: 'bom',
+      label: 'Print Recipes (BOM)',
+      icon: Layers,
     },
     {
-      id: 'audit_log',
-      label: 'Audit Ledger',
+      id: 'movements',
+      label: 'Stock Movements & Scrap',
       icon: History,
-    },
-    {
-      id: 'reference_architecture',
-      label: 'Blueprints',
-      icon: Network,
     },
   ];
 
   return (
-    <nav id="app-navigation-tabs" className="bg-slate-900/60 backdrop-blur border-b border-slate-800 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto flex items-center space-x-1 overflow-x-auto py-2 scrollbar-none">
+    <nav id="app-navigation-tabs" className="bg-slate-900/90 border-b border-slate-800 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto flex items-center space-x-1 overflow-x-auto py-2.5 scrollbar-none">
         {tabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeView === tab.id;
@@ -105,7 +84,7 @@ export const TabBar: React.FC = () => {
               <Icon className={`w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
               <span>{tab.label}</span>
               {tab.badge !== undefined && (
-                <span className={`ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold border ${tab.badgeColor || 'bg-slate-800 text-slate-300 border-slate-700'}`}>
+                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${tab.badgeColor || 'bg-slate-800 text-slate-300 border-slate-700'}`}>
                   {tab.badge}
                 </span>
               )}
