@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# SQLite database - contains Xero OAuth client secret and refresh tokens in plaintext
+*.db
+*.db-shm
+*.db-wal
+*.db.backup
