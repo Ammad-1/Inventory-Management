@@ -101,21 +101,27 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice,
       return { lineRevenue, lineCogs, lineProfit: lineRevenue - lineCogs, excluded: false };
     });
 
-    // Xero's invoice total is authoritative for revenue - it includes tax and
-    // any rounding the line array does not carry. The line sum is only used to
-    // flag a mismatch, never to restate what the customer was billed.
-    const xeroTotal = invoice?.totalAmount ?? 0;
-    const profit = xeroTotal - cogs;
+    // Revenue excludes VAT, exactly as the invoice list and the server do.
+    // Using the gross total here produced a different margin in this dialog
+    // than in the table behind it for the same invoice.
+    const gross = invoice?.totalAmount ?? 0;
+    const vat = invoice?.totalTax ?? 0;
+    const netRevenue = invoice?.netRevenue ?? invoice?.subTotal ?? (gross - vat);
+    const profit = netRevenue - cogs;
+
     return {
       perLine,
       lineSum: revenue,
-      revenue: xeroTotal,
-      mismatch: Math.abs(xeroTotal - revenue) > 0.01,
+      netRevenue,
+      vat,
+      gross,
+      // Only meaningful once the draft's own line values drift from the net
+      lineDrift: Math.abs(netRevenue - revenue) > 0.01,
       cogs,
       profit,
-      margin: xeroTotal > 0 ? (profit / xeroTotal) * 100 : null
+      margin: netRevenue > 0 ? (profit / netRevenue) * 100 : null
     };
-  }, [drafts, itemById, invoice?.totalAmount]);
+  }, [drafts, itemById, invoice?.totalAmount, invoice?.totalTax, invoice?.netRevenue, invoice?.subTotal]);
 
   // Net stock movement per SKU if this invoice is confirmed
   const stockImpact = useMemo(() => {
@@ -251,20 +257,23 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice,
         </div>
 
         {/* Summary */}
-        <div className="grid grid-cols-2 gap-5 border-b border-slate-200 bg-slate-50 px-6 py-3.5 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-5 border-b border-slate-200 bg-slate-50 px-6 py-3.5 sm:grid-cols-5">
           {[
-            { label: 'Client total', value: money(computed.revenue), tone: 'text-slate-900' },
+            { label: 'Net of VAT', value: money(computed.netRevenue), tone: 'text-slate-900', sub: `£${computed.gross.toLocaleString('en-GB', { minimumFractionDigits: 2 })} inc. VAT` },
+            { label: 'VAT', value: money(computed.vat), tone: 'text-slate-600', sub: 'Collected for HMRC' },
             { label: 'True landed COGS', value: money(computed.cogs), tone: 'text-amber-700' },
             { label: 'Gross profit', value: money(computed.profit), tone: computed.profit >= 0 ? 'text-emerald-700' : 'text-rose-700' },
             {
               label: 'Margin',
               value: computed.margin === null ? '—' : `${computed.margin.toFixed(1)}%`,
-              tone: (computed.margin ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'
+              tone: (computed.margin ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700',
+              sub: 'On net revenue'
             }
           ].map(cell => (
             <div key={cell.label} className="flex flex-col gap-0.5">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{cell.label}</span>
               <span className={`text-lg font-bold tracking-tight tabular-nums ${cell.tone}`}>{cell.value}</span>
+              {cell.sub && <span className="text-xs text-slate-500">{cell.sub}</span>}
             </div>
           ))}
         </div>
@@ -445,12 +454,12 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice,
             </div>
           )}
 
-          {computed.mismatch && (
+          {computed.lineDrift && (
             <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
-                Line values total {money(computed.lineSum)} but Xero bills {money(computed.revenue)} — usually tax or a
-                rolled-up charge. Profit is calculated against the Xero total.
+                These lines total {money(computed.lineSum)} but the invoice is {money(computed.netRevenue)} net of VAT.
+                Profit uses the invoice figure, so check the quantities and prices below match what was billed.
               </span>
             </div>
           )}
