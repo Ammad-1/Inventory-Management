@@ -38,58 +38,14 @@ export const XeroWebhookHub: React.FC = () => {
     <div className="space-y-6">
         <div className="space-y-6">
           
-          {/* Technical Guide Explanatory Card */}
-          <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-6 shadow-md space-y-4">
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase tracking-wider">
-                Xero Developer Specification
-              </span>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                ITR Compliant
-              </span>
-            </div>
+          <p className="text-xs text-slate-500">
+        Xero signs each delivery with HMAC-SHA256 in the <code className="font-mono">x-xero-signature</code> header
+        and expects 200 for a valid signature and 401 for an invalid one, within 5 seconds. Xero's own dispatchers
+        require a public HTTPS URL, so run a tunnel to test against them; the simulator below exercises the same
+        verification locally.
+      </p>
 
-            <h2 className="text-xl font-black tracking-tight font-heading">
-              Testing Xero Webhooks: Requirements & Local Testing Without HTTPS
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-slate-300 leading-relaxed pt-2">
-              <div className="bg-white/5 p-4 rounded-xl border border-white/10 space-y-2">
-                <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
-                  <ShieldCheck className="w-4 h-4" />
-                  What is required by Xero Webhooks?
-                </div>
-                <ul className="space-y-1.5 list-disc list-inside text-slate-300">
-                  <li><strong className="text-white">Webhook Signing Key:</strong> Generated when configuring your App in the Xero Developer Portal.</li>
-                  <li><strong className="text-white">HMAC-SHA256 Signature:</strong> Xero signs every request using your signing key and sends it in the <code className="text-indigo-300 bg-white/10 px-1 py-0.5 rounded">x-xero-signature</code> header.</li>
-                  <li><strong className="text-white">Intent to Receive (ITR) Handshake:</strong> When setting up, Xero tests your endpoint by sending sample and tampered payloads. You must return <strong className="text-emerald-400">200 OK</strong> for valid signatures and <strong className="text-rose-400">401 Unauthorized</strong> for invalid signatures within 5 seconds!</li>
-                </ul>
-              </div>
-
-              <div className="bg-white/5 p-4 rounded-xl border border-white/10 space-y-2">
-                <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm">
-                  <Globe className="w-4 h-4" />
-                  Can this be tested locally without HTTPS?
-                </div>
-                <div className="space-y-2 text-slate-300">
-                  <p>
-                    <strong className="text-white">Directly from Xero servers:</strong> Xero's production webhook dispatchers strictly require an <strong className="text-white">HTTPS</strong> public URL with a valid SSL certificate. They reject plain <code className="text-rose-300 bg-white/10 px-1 py-0.5 rounded">http://localhost</code>.
-                  </p>
-                  <p>
-                    <strong className="text-white">Solution 1 (Pure Local):</strong> Use our built-in simulator below. It executes the exact node.js crypto HMAC-SHA256 verification and ITR logic locally without internet or HTTPS.
-                  </p>
-                  <p>
-                    <strong className="text-white">Solution 2 (Real Xero Tunnel):</strong> For live Xero developer portal testing, run free tunnel:
-                    <code className="block mt-1 bg-black/40 text-emerald-400 p-1.5 rounded font-mono text-[11px]">
-                      npx ngrok http 5000 &nbsp;OR&nbsp; npx cloudflared tunnel --url http://localhost:5000
-                    </code>
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Interactive Webhook Simulator & Diagnostics */}
+      {/* Interactive Webhook Simulator & Diagnostics */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
             {/* Left Console */}
