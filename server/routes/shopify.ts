@@ -305,6 +305,9 @@ function normaliseOrder(o: any) {
     financialStatus: (o.displayFinancialStatus || o.financial_status || 'paid').toLowerCase(),
     currency: o.currencyCode || o.currency || 'GBP',
     total: Number(o.totalPriceSet?.shopMoney?.amount ?? o.total_price ?? 0),
+    // Shopify's total includes tax; subtotal is the revenue figure
+    subTotal: Number(o.subtotalPriceSet?.shopMoney?.amount ?? o.subtotal_price ?? 0),
+    totalTax: Number(o.totalTaxSet?.shopMoney?.amount ?? o.total_tax ?? 0),
     customerName: customer || o.email || 'Shopify customer',
     lines
   };
@@ -348,8 +351,10 @@ function buildOrderRecord(raw: any) {
   });
 
   const totalAmount = o.total;
+  // Margin is computed on revenue excluding tax, never the gross total
+  const netRevenue = o.subTotal > 0 ? o.subTotal : totalAmount - (o.totalTax || 0);
   const totalLanded = items.reduce((sum: number, i: any) => sum + i.estimatedLandedCost, 0);
-  const grossProfit = totalAmount - totalLanded;
+  const grossProfit = netRevenue - totalLanded;
 
   return {
     id: `ecom-${crypto.randomUUID().slice(0, 8)}`,
@@ -357,12 +362,14 @@ function buildOrderRecord(raw: any) {
     customerName: o.customerName,
     orderDate: o.createdAt.slice(0, 10),
     totalAmount,
+    subTotal: Number(netRevenue.toFixed(2)),
+    totalTax: Number((o.totalTax || 0).toFixed(2)),
     currency: o.currency,
     status: o.cancelled ? 'cancelled' : o.financialStatus,
     items,
     totalLanded: Number(totalLanded.toFixed(2)),
     grossProfit: Number(grossProfit.toFixed(2)),
-    marginPercent: totalAmount > 0 ? Number(((grossProfit / totalAmount) * 100).toFixed(1)) : 0
+    marginPercent: netRevenue > 0 ? Number(((grossProfit / netRevenue) * 100).toFixed(1)) : 0
   };
 }
 
@@ -374,11 +381,13 @@ function upsertOrder(record: ReturnType<typeof buildOrderRecord>) {
   if (existing) {
     db.prepare(`
       UPDATE ecommerce_orders SET
-        customer_name = ?, total_amount = ?, status = ?, items_json = ?,
+        customer_name = ?, total_amount = ?, sub_total = ?, total_tax = ?,
+        status = ?, items_json = ?,
         total_landed_cost = ?, gross_profit = ?, margin_percent = ?
       WHERE id = ?
     `).run(
-      record.customerName, record.totalAmount, record.status, JSON.stringify(record.items),
+      record.customerName, record.totalAmount, record.subTotal, record.totalTax,
+      record.status, JSON.stringify(record.items),
       record.totalLanded, record.grossProfit, record.marginPercent, existing.id
     );
     return { id: existing.id, created: false };
@@ -386,13 +395,15 @@ function upsertOrder(record: ReturnType<typeof buildOrderRecord>) {
 
   db.prepare(`
     INSERT INTO ecommerce_orders (
-      id, order_number, platform, customer_name, order_date, total_amount, currency,
+      id, order_number, platform, customer_name, order_date, total_amount,
+      sub_total, total_tax, currency,
       status, items_json, stock_deducted, deducted_at, total_landed_cost,
       gross_profit, margin_percent, created_at
-    ) VALUES (?, ?, 'shopify', ?, ?, ?, ?, ?, ?, 0, null, ?, ?, ?, ?)
+    ) VALUES (?, ?, 'shopify', ?, ?, ?, ?, ?, ?, ?, ?, 0, null, ?, ?, ?, ?)
   `).run(
     record.id, record.orderNumber, record.customerName, record.orderDate,
-    record.totalAmount, record.currency, record.status, JSON.stringify(record.items),
+    record.totalAmount, record.subTotal, record.totalTax,
+    record.currency, record.status, JSON.stringify(record.items),
     record.totalLanded, record.grossProfit, record.marginPercent, now
   );
   return { id: record.id, created: true };
@@ -487,6 +498,8 @@ shopifyRouter.post('/orders/sync', async (req: Request, res: Response) => {
                email
                currencyCode
                totalPriceSet { shopMoney { amount } }
+               subtotalPriceSet { shopMoney { amount } }
+               totalTaxSet { shopMoney { amount } }
                customer { firstName lastName }
                lineItems(first: 100) {
                  edges {

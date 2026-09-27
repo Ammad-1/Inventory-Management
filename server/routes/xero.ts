@@ -8,6 +8,20 @@ export const xeroRouter = Router();
 // Override with APP_URL when the UI is not on the default dev port.
 const APP_URL = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
+/**
+ * A delivery/carriage line carries revenue but consumes no stock.
+ *
+ * Deliberately narrow: it fires only when the line OPENS with a carriage
+ * phrase. PrintBerry's product lines begin "PO : ..." and often mention
+ * "Shipped with FedEx" later in the same string, so a substring match would
+ * wrongly classify real product lines as freight.
+ */
+export function looksLikeShippingLine(description: string): boolean {
+  const d = String(description || '').trim().toLowerCase();
+  if (!d) return false;
+  return /^(shipped|shipping|delivery|delivered|postage|carriage|courier|freight|p&p|post and packing)\b/.test(d);
+}
+
 // Smart matcher helper for freeform descriptions
 export function matchLineItemToStock(description: string): {
   recipeId: string | null;
@@ -508,12 +522,14 @@ xeroRouter.post('/oauth/sync', async (req: Request, res: Response) => {
     const insertOrUpdate = db.prepare(`
       INSERT INTO xero_invoices (
         id, invoice_number, type, customer_name, invoice_date, due_date,
-        total_amount, currency, status, line_items_json, stock_deducted,
-        deducted_at, created_at
-      ) VALUES (?, ?, 'ACCREC', ?, ?, ?, ?, ?, ?, ?, 0, null, ?)
+        total_amount, sub_total, total_tax, currency, status, line_items_json,
+        stock_deducted, deducted_at, created_at
+      ) VALUES (?, ?, 'ACCREC', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, null, ?)
       ON CONFLICT(invoice_number) DO UPDATE SET
         customer_name = excluded.customer_name,
         total_amount = excluded.total_amount,
+        sub_total = excluded.sub_total,
+        total_tax = excluded.total_tax,
         status = excluded.status
     `);
 
@@ -571,6 +587,9 @@ xeroRouter.post('/oauth/sync', async (req: Request, res: Response) => {
         inv.DateString ? inv.DateString.slice(0, 10) : now.slice(0, 10),
         inv.DueDateString ? inv.DueDateString.slice(0, 10) : now.slice(0, 10),
         inv.Total || 0,
+        // Xero's Total is tax inclusive; SubTotal is the revenue figure
+        inv.SubTotal ?? null,
+        inv.TotalTax ?? null,
         inv.CurrencyCode || 'GBP',
         inv.Status || 'AUTHORISED',
         JSON.stringify(mergedLines),
@@ -613,6 +632,8 @@ xeroRouter.get('/invoices', (req: Request, res: Response) => {
         invoice_date as invoiceDate,
         due_date as dueDate,
         total_amount as totalAmount,
+        sub_total as subTotal,
+        total_tax as totalTax,
         currency,
         status,
         line_items_json as lineItemsJson,
@@ -635,11 +656,15 @@ xeroRouter.get('/invoices', (req: Request, res: Response) => {
       const processedLines = rawLines.map((line: any) => {
         // A line the operator marked non-stock (freight, setup, artwork) never
         // matches and never deducts, whatever the description looks like.
-        const match = line.manualMatch
-          ? { blankItemId: null, packagingItemId: null, confidence: 'manual' as const, matchReason: 'Set manually' }
+        // An operator's decision always wins; otherwise infer carriage lines
+        const inferredShipping = !line.manualMatch && looksLikeShippingLine(line.description);
+        const isNonStock = line.nonStock || inferredShipping;
+
+        const match = line.manualMatch || inferredShipping
+          ? { blankItemId: null, packagingItemId: null, confidence: 'manual' as const, matchReason: inferredShipping ? 'Delivery line — no stock consumed' : 'Set manually' }
           : matchLineItemToStock(line.description);
-        const blankId = line.nonStock ? null : (line.matchedBlankId || match.blankItemId);
-        const boxId = line.nonStock ? null : (line.matchedBoxId || match.packagingItemId);
+        const blankId = isNonStock ? null : (line.matchedBlankId || match.blankItemId);
+        const boxId = isNonStock ? null : (line.matchedBoxId || match.packagingItemId);
 
         const blankItem = blankId ? itemMap.get(blankId) : null;
         const boxItem = boxId ? itemMap.get(boxId) : null;
@@ -663,20 +688,24 @@ xeroRouter.get('/invoices', (req: Request, res: Response) => {
           matchedBoxStock: boxItem?.current_stock || 0,
           matchConfidence: line.matchConfidence || match.confidence,
           matchReason: line.nonStock ? 'Marked as non-stock' : match.matchReason,
-          nonStock: !!line.nonStock,
+          nonStock: isNonStock,
+          inferredShipping,
           manualMatch: !!line.manualMatch,
           estimatedLandedCost: Number(lineTotalCost.toFixed(2)),
           grossProfit: Number(((line.quantity * (line.unitPrice || 0)) - lineTotalCost).toFixed(2))
         };
       });
 
-      const totalRevenue = inv.totalAmount || 0;
-      const trueGrossProfit = totalRevenue - totalLandedCost;
-      const marginPercent = totalRevenue > 0 ? (trueGrossProfit / totalRevenue) * 100 : 0;
+      // Margin is calculated on revenue excluding VAT. Falling back to the
+      // gross total only when an older row has no split stored.
+      const netRevenue = inv.subTotal ?? inv.totalAmount ?? 0;
+      const trueGrossProfit = netRevenue - totalLandedCost;
+      const marginPercent = netRevenue > 0 ? (trueGrossProfit / netRevenue) * 100 : 0;
 
       return {
         ...inv,
         lines: processedLines,
+        netRevenue: Number(netRevenue.toFixed(2)),
         totalLandedCost: Number(totalLandedCost.toFixed(2)),
         trueGrossProfit: Number(trueGrossProfit.toFixed(2)),
         marginPercent: Number(marginPercent.toFixed(1))
@@ -709,7 +738,7 @@ xeroRouter.post('/invoices/:id/deduct', (req: Request, res: Response) => {
 
     for (const line of lines) {
       // Non-stock lines (freight, setup, artwork) deduct nothing
-      if (line.nonStock) continue;
+      if (line.nonStock || (!line.manualMatch && looksLikeShippingLine(line.description))) continue;
 
       const match = line.manualMatch
         ? { blankItemId: null, packagingItemId: null }

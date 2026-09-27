@@ -211,6 +211,23 @@ export function initDatabase() {
     );
   }
 
+  // Invoices and orders must carry the tax split. Margin computed against a
+  // VAT-inclusive total overstates both profit and margin: on a 3,000 invoice
+  // at 20% VAT, 500 of that is HMRC's, not revenue.
+  for (const [table, cols] of [
+    ['xero_invoices', ['sub_total', 'total_tax']],
+    ['ecommerce_orders', ['sub_total', 'total_tax']]
+  ] as [string, string[]][]) {
+    try {
+      const have = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as any[]).map(c => c.name));
+      for (const col of cols) {
+        if (!have.has(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} REAL;`);
+      }
+    } catch (err) {
+      console.warn(`[Database] ${table} tax column check note:`, err);
+    }
+  }
+
   // 5. Learned Mapping Rules for freeform Xero invoice text
   db.exec(`
     CREATE TABLE IF NOT EXISTS xero_mappings (

@@ -182,7 +182,11 @@ export const XeroInvoicesView: React.FC<XeroInvoicesViewProps> = ({ onOpenCreate
     }
   };
 
-  const totalInvoiceRevenue = invoices.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+  // Revenue excludes VAT; the gross figure is tracked separately so both can
+  // be shown without either being mistaken for the other.
+  const totalInvoiceRevenue = invoices.reduce((sum, inv) => sum + (inv.netRevenue ?? inv.totalAmount ?? 0), 0);
+  const totalInvoiceGross = invoices.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+  const totalVat = totalInvoiceGross - totalInvoiceRevenue;
   const totalTrueLandedCost = invoices.reduce((sum, inv) => sum + (inv.totalLandedCost || 0), 0);
   const totalTrueGrossProfit = totalInvoiceRevenue - totalTrueLandedCost;
   const averageMargin = totalInvoiceRevenue > 0 ? (totalTrueGrossProfit / totalInvoiceRevenue) * 100 : 0;
@@ -574,11 +578,13 @@ export const XeroInvoicesView: React.FC<XeroInvoicesViewProps> = ({ onOpenCreate
       {/* 4 Financial Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
         <div className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.03)] hover:shadow-md transition-all">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase">Invoiced to Clients</div>
+          <div className="text-[11px] font-semibold text-slate-500 uppercase">Invoiced (net of VAT)</div>
           <div className="text-2xl font-extrabold text-slate-900 mt-1 font-heading">
             £{totalInvoiceRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2 })}
           </div>
-          <div className="text-xs text-slate-400 font-medium mt-1">{invoices.length} Total Invoices</div>
+          <div className="text-xs text-slate-500 font-medium mt-1">
+            {invoices.length} invoice{invoices.length === 1 ? '' : 's'} · £{totalVat.toLocaleString('en-GB', { minimumFractionDigits: 2 })} VAT
+          </div>
         </div>
 
         <div className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.03)] hover:shadow-md transition-all">
@@ -697,6 +703,8 @@ export const XeroInvoicesView: React.FC<XeroInvoicesViewProps> = ({ onOpenCreate
                     <th scope="col" className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Customer</th>
                     <th scope="col" className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500 whitespace-nowrap">Date</th>
                     <th scope="col" className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">Lines</th>
+                    <th scope="col" className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Net</th>
+                    <th scope="col" className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">VAT</th>
                     <th scope="col" className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Total</th>
                     <th scope="col" className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">COGS</th>
                     <th scope="col" className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Gross profit</th>
@@ -735,6 +743,14 @@ export const XeroInvoicesView: React.FC<XeroInvoicesViewProps> = ({ onOpenCreate
                         <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{inv.invoiceDate}</td>
                         <td className="px-3 py-2.5 text-center text-slate-500">{(inv.lines || []).length}</td>
                         <td className="px-3 py-2.5 text-right font-semibold text-slate-900 tabular-nums whitespace-nowrap">
+                          £{(inv.netRevenue ?? inv.totalAmount ?? 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-slate-500 tabular-nums whitespace-nowrap">
+                          {inv.totalTax !== undefined && inv.totalTax !== null
+                            ? `£${inv.totalTax.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-slate-600 tabular-nums whitespace-nowrap">
                           £{(inv.totalAmount || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-3 py-2.5 text-right text-amber-700 tabular-nums whitespace-nowrap">
@@ -785,7 +801,7 @@ export const XeroInvoicesView: React.FC<XeroInvoicesViewProps> = ({ onOpenCreate
 
             <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2.5">
               <span className="text-xs text-slate-500">
-                Showing {filteredInvoices.length} of {invoices.length} · newest first
+                Showing {filteredInvoices.length} of {invoices.length} · newest first · margin calculated on net of VAT
               </span>
               <span className="text-xs text-slate-500">Click any row to match lines and deduct stock</span>
             </div>

@@ -448,11 +448,14 @@ export function createXeroPushRouter(
       db.prepare(`
         INSERT INTO xero_invoices (
           id, invoice_number, type, customer_name, invoice_date, due_date,
-          total_amount, currency, status, line_items_json, stock_deducted,
-          deducted_at, created_at
-        ) VALUES (?, ?, 'ACCREC', ?, ?, ?, ?, ?, ?, ?, 0, null, ?)
+          total_amount, sub_total, total_tax, currency, status, line_items_json,
+          stock_deducted, deducted_at, created_at
+        ) VALUES (?, ?, 'ACCREC', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, null, ?)
         ON CONFLICT(invoice_number) DO UPDATE SET
-          total_amount = excluded.total_amount, status = excluded.status
+          total_amount = excluded.total_amount,
+          sub_total = excluded.sub_total,
+          total_tax = excluded.total_tax,
+          status = excluded.status
       `).run(
         localId,
         invoiceNumber,
@@ -460,6 +463,8 @@ export function createXeroPushRouter(
         (created.DateString || issueDate).slice(0, 10),
         (created.DueDateString || due).slice(0, 10),
         Number(created.Total ?? 0),
+        created.SubTotal ?? null,
+        created.TotalTax ?? null,
         created.CurrencyCode || 'GBP',
         created.Status || status,
         JSON.stringify(builtLines.map(l => l.local)),
@@ -517,6 +522,8 @@ export function createXeroPushRouter(
         invoiceNumber,
         status: created.Status || status,
         total: Number(created.Total ?? 0),
+        subTotal: Number(created.SubTotal ?? 0),
+        totalTax: Number(created.TotalTax ?? 0),
         onlineInvoiceUrl: created.OnlineInvoiceUrl || null,
         stockDeducted: deductStock && !deductError,
         stockMovements: deducted,

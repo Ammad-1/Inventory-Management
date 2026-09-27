@@ -124,6 +124,10 @@ export interface XeroInvoice {
   invoiceDate: string;
   dueDate: string;
   totalAmount: number;
+  /** Revenue excluding VAT. Margin is always computed against this. */
+  subTotal?: number;
+  totalTax?: number;
+  netRevenue?: number;
   currency: string;
   status: string;
   lineItemsJson?: string;
