@@ -9,9 +9,29 @@ import crypto from 'node:crypto';
  * (Shopify, Amazon, eBay, TikTok and more) and normalises a SKU onto each
  * order line. That makes it a single source for order intake, and avoids
  * building — and maintaining — a separate integration per marketplace.
+ *
+ * WHY V1, GIVEN V1 IS DEPRECATED
+ *
+ * ShipStation's docs state the V1 API "is deprecated and will be removed in
+ * the future". We use it anyway because V2 has no replacement for what we
+ * need: its own docs say the Sales Order "is not currently represented in
+ * full in the API". V2 is the Shipping API — rates, labels, batches,
+ * manifests.
+ *
+ * The nearest V2 equivalent is GET /v2/shipments, which does carry items with
+ * SKUs and a sales_order_id. But a shipment is not an order: one shipment can
+ * combine items from several sales orders, and its statuses (pending,
+ * processing, label_purchased) do not map onto the "Awaiting Shipment" queue
+ * the warehouse actually works from.
+ *
+ * So: V1 until V2 exposes Sales Orders. Every call goes through ssFetch()
+ * below, so switching is that one function plus the response mapping, not a
+ * rewrite. Worth re-checking the V2 docs periodically.
  */
 export const shipstationRouter = Router();
 
+// V1 host. V2 lives at https://api.shipstation.com/v2 and authenticates with
+// an `API-Key` header rather than Basic auth.
 const API = 'https://ssapi.shipstation.com';
 
 /** Statuses at which stock may be deducted. */
