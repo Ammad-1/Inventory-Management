@@ -55,7 +55,10 @@ export const EcommerceView: React.FC = () => {
 
   // Filter state for orders
   const connectedCount = ecommerceChannels.filter(c => c.connected).length;
+  // Filter by the store an order actually came from, not a hardcoded platform
+  const storeNames = [...new Set(ecommerceOrders.map(o => o.storeName).filter(Boolean))].sort() as string[];
   const [showSimulator, setShowSimulator] = useState(false);
+  const [showShopifyDirect, setShowShopifyDirect] = useState(false);
 
   const [platformFilter, setPlatformFilter] = useState<'all' | EcommercePlatform>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -164,7 +167,7 @@ export const EcommerceView: React.FC = () => {
 
   // Filtered orders list
   const filteredOrders = ecommerceOrders.filter(order => {
-    const matchesPlatform = platformFilter === 'all' || order.platform === platformFilter;
+    const matchesPlatform = platformFilter === 'all' || order.storeName === platformFilter;
     const matchesSearch = 
       order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -180,71 +183,28 @@ export const EcommerceView: React.FC = () => {
         <div className="flex items-baseline justify-between gap-4">
           <h2 className="text-sm font-bold text-slate-900">Connections</h2>
           <span className="text-xs text-slate-500">
-            {connectedCount} of {ecommerceChannels.length} channels connected
+            {storeNames.length > 0 ? `${storeNames.length} store${storeNames.length === 1 ? '' : 's'} with orders` : 'No orders yet'}
           </span>
         </div>
 
         <ShipStationPanel />
 
-        <ShopifyConnectPanel />
+        <button
+          type="button"
+          onClick={() => setShowShopifyDirect(v => !v)}
+          aria-expanded={showShopifyDirect}
+          className="flex w-full items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:bg-slate-50"
+        >
+          <span className="flex items-center gap-2">
+            <span className="text-sm font-bold text-slate-900">Shopify direct connection</span>
+            <span className="text-xs text-slate-500">
+              Superseded by ShipStation, which already carries your Shopify stores. Kept for reference.
+            </span>
+          </span>
+          <span className="text-xs font-semibold text-indigo-600">{showShopifyDirect ? 'Hide' : 'Show'}</span>
+        </button>
 
-        <p className="pt-1 text-xs text-slate-500">
-          No direct integration. Orders from these channels arrive through ShipStation above.
-        </p>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {ecommerceChannels.filter(c => c.id !== 'shopify').map(channel => {
-          const isShopify = channel.id === 'shopify';
-          const isAmazon = channel.id === 'amazon';
-          const isEbay = channel.id === 'ebay';
-
-          return (
-            <div 
-              key={channel.id} 
-              className="bg-white rounded-xl p-4 border border-slate-200/80 shadow-xs hover:border-slate-300 transition-all flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
-                      isShopify ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                      isAmazon ? 'bg-amber-50 text-amber-800 border border-amber-200' :
-                      isEbay ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                      'bg-slate-100 text-slate-700'
-                    }`}>
-                      {isShopify ? 'SPF' : isAmazon ? 'AMZ' : isEbay ? 'EBAY' : 'TT'}
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-bold text-slate-900 leading-tight">{channel.name}</h3>
-                      <p className="text-[10px] text-slate-400 truncate max-w-[140px]">{channel.storeIdentifier}</p>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    channel.connected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'
-                  }`}>
-                    {channel.connected ? 'Active' : 'Offline'}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-100 text-xs">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-medium">Orders Today</span>
-                    <span className="font-bold text-slate-800">{channel.ordersToday}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-medium">Revenue</span>
-                    <span className="font-bold text-slate-800">£{channel.revenueTodayGBP.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-3 pt-2 text-[10px] text-slate-400 flex items-center justify-between border-t border-slate-50">
-                <span className="truncate">Webhook: .../api/ecommerce/webhook/{channel.id}</span>
-                <Globe className="w-3 h-3 text-slate-400 shrink-0 ml-1" />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+        {showShopifyDirect && <ShopifyConnectPanel />}
 
       </section>
 
@@ -289,10 +249,8 @@ export const EcommerceView: React.FC = () => {
               {/* Platform Filter Tabs */}
               <div className="flex items-center space-x-1.5 border-b border-slate-100 pb-2">
                 {[
-                  { id: 'all', label: 'All Channels' },
-                  { id: 'shopify', label: 'Shopify' },
-                  { id: 'amazon', label: 'Amazon' },
-                  { id: 'ebay', label: 'eBay' }
+                  { id: 'all', label: 'All stores' },
+                  ...storeNames.map(n => ({ id: n, label: n }))
                 ].map(tab => (
                   <button
                     key={tab.id}
@@ -313,72 +271,108 @@ export const EcommerceView: React.FC = () => {
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-500">
-                      <th className="py-2.5 px-3">Order / Platform</th>
-                      <th className="py-2.5 px-3">Customer</th>
-                      <th className="py-2.5 px-3">Items & BOM Deduction</th>
-                      <th className="py-2.5 px-3 text-right">Revenue</th>
-                      <th className="py-2.5 px-3 text-right">Landed Margin</th>
-                      <th className="py-2.5 px-2 text-center">Action</th>
+                      <th scope="col" className="py-2.5 px-3">Order</th>
+                      <th scope="col" className="py-2.5 px-3">Store</th>
+                      <th scope="col" className="py-2.5 px-3">Customer</th>
+                      <th scope="col" className="py-2.5 px-3">Items</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Net</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">COGS</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Margin</th>
+                      <th scope="col" className="py-2.5 px-3">Stock</th>
+                      <th scope="col" className="py-2.5 px-2 text-center">
+                        <span className="sr-only">Actions</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredOrders.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400 text-xs">
+                        <td colSpan={9} className="py-8 text-center text-slate-400 text-xs">
                           No eCommerce orders found matching the filter criteria.
                         </td>
                       </tr>
                     ) : (
                       filteredOrders.map(order => {
-                        const isShopify = order.platform === 'shopify';
-                        const isAmazon = order.platform === 'amazon';
-                        const isEbay = order.platform === 'ebay';
+                        const lines = order.items || [];
+                        const mappedLines = lines.filter(l => l.matchedBlankId).length;
+                        const allMapped = lines.length > 0 && mappedLines === lines.length;
+                        const isDeducted = order.stockDeducted === 1;
+                        const net = order.subTotal ?? order.totalAmount ?? 0;
 
                         return (
                           <tr key={order.id} className="hover:bg-slate-50/70 transition-colors">
                             <td className="py-3 px-3">
-                              <div className="font-bold text-slate-900 font-mono">{order.orderNumber}</div>
-                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold mt-0.5 ${
-                                isShopify ? 'bg-emerald-50 text-emerald-700' :
-                                isAmazon ? 'bg-amber-50 text-amber-800' :
-                                isEbay ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
-                              }`}>
-                                {order.platform.toUpperCase()}
+                              <div className="font-mono font-bold text-slate-900">{order.orderNumber}</div>
+                              <div className="text-[10px] text-slate-500">{order.orderDate}</div>
+                            </td>
+
+                            <td className="py-3 px-3">
+                              <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                                {order.storeName || order.platform}
                               </span>
                             </td>
 
                             <td className="py-3 px-3">
-                              <div className="font-semibold text-slate-800">{order.customerName}</div>
-                              <div className="text-[10px] text-slate-400">{order.orderDate}</div>
+                              <div className="max-w-[150px] truncate font-semibold text-slate-800" title={order.customerName}>
+                                {order.customerName}
+                              </div>
                             </td>
 
-                            <td className="py-3 px-3 max-w-[220px]">
-                              {order.items?.map((it, idx) => (
-                                <div key={idx} className="space-y-0.5">
-                                  <div className="font-medium text-slate-800 truncate" title={it.productTitle}>
+                            <td className="py-3 px-3 max-w-[260px]">
+                              {lines.map((it, idx) => (
+                                <div key={idx} className="space-y-0.5 py-0.5">
+                                  <div className="truncate font-medium text-slate-800" title={it.productTitle}>
                                     {it.quantity}x {it.productTitle}
                                   </div>
-                                  <div className="flex items-center gap-1 text-[10px] text-slate-500">
-                                    <span className="inline-flex items-center gap-0.5 text-emerald-700 font-medium">
-                                      <Check className="w-3 h-3 text-emerald-600" />
-                                      Deducted: {it.matchedBlankSku || 'Blank'} + {it.matchedBoxSku || 'Box'}
-                                    </span>
+                                  <div className="flex items-center gap-1.5 text-[10px]">
+                                    <span className="font-mono text-slate-500">{it.skuSold || 'no SKU'}</span>
+                                    {it.matchedBlankSku ? (
+                                      <span className="font-medium text-emerald-700">→ {it.matchedBlankSku}</span>
+                                    ) : (
+                                      <span className="font-semibold text-pink-700">not mapped</span>
+                                    )}
                                   </div>
                                 </div>
                               ))}
                             </td>
 
-                            <td className="py-3 px-3 text-right">
-                              <span className="font-bold text-slate-900">£{order.totalAmount.toFixed(2)}</span>
+                            <td className="py-3 px-3 text-right font-bold tabular-nums text-slate-900">
+                              £{net.toFixed(2)}
+                            </td>
+
+                            <td className="py-3 px-3 text-right tabular-nums text-amber-700">
+                              {allMapped ? `£${(order.totalLandedCost ?? 0).toFixed(2)}` : '—'}
                             </td>
 
                             <td className="py-3 px-3 text-right">
-                              <div className="font-bold text-emerald-700">
-                                +£{(order.grossProfit ?? 0).toFixed(2)}
-                              </div>
-                              <div className="text-[10px] text-slate-400">
-                                {order.marginPercent ?? 0}% margin
-                              </div>
+                              {allMapped ? (
+                                <>
+                                  <div className="font-bold tabular-nums text-emerald-700">
+                                    £{(order.grossProfit ?? 0).toFixed(2)}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 tabular-nums">
+                                    {order.marginPercent ?? 0}%
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="text-[10px] text-slate-500">unknown until mapped</span>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-3">
+                              {isDeducted ? (
+                                <span className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                                  <Check className="h-3 w-3" /> Deducted
+                                </span>
+                              ) : allMapped ? (
+                                <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                                  Ready
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded border border-pink-200 bg-pink-50 px-1.5 py-0.5 text-[10px] font-semibold text-pink-700">
+                                  {lines.length - mappedLines} unmapped
+                                </span>
+                              )}
                             </td>
 
                             <td className="py-3 px-2 text-center">

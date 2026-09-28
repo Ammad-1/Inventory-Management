@@ -39,7 +39,7 @@ export const Header: React.FC<HeaderProps> = ({ onQuickScrap, onQuickAdjust, onQ
       case 'dashboard': return 'Clear, intuitive overview of warehouse stock valuation, container arrivals, and true profit margins.';
       case 'inventory': return 'Manage blank mugs, canvas tote bags, packaging boxes, and printing consumables.';
       case 'shipments': return 'Ocean freight tracking, UK customs clearance, and CBM volume-based landed cost calculations.';
-      case 'ecommerce': return 'Shopify order intake with automatic BOM explosion and stock deduction. Other channels are not yet connected.';
+      case 'ecommerce': return 'Order intake from every sales channel via ShipStation, with automatic BOM explosion and stock deduction.';
       case 'xero': return 'Free two-way invoice synchronization with automated stock deductions.';
       case 'bom': return 'Itemized print recipes with gross margin analytics and heat-press defect allowance (+2.5%).';
       case 'movements': return 'Full audit trail of container receipts, Xero sales deductions, and factory scrap logs.';

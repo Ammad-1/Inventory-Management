@@ -415,6 +415,26 @@ export function initDatabase() {
     console.error('[Database] ecommerce_orders migration failed:', err);
   }
 
+  // 6d. SKU pattern rules.
+  //
+  // A print business creates a new SKU per design, but they all consume the
+  // same small set of blanks: MUG-11oz-37954-WHITE and MUG-11oz-38082-WHITE
+  // are both an 11oz white mug. Mapping each SKU by hand never ends, so a
+  // rule maps a whole family at once and covers future designs automatically.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sku_pattern_rules (
+      id TEXT PRIMARY KEY,
+      pattern TEXT NOT NULL,
+      blank_item_id TEXT,
+      packaging_item_id TEXT,
+      units_per_sale INTEGER NOT NULL DEFAULT 1,
+      priority INTEGER NOT NULL DEFAULT 100,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
   // 7. Stock movements (Immutable audit ledger)
   db.exec(`
     CREATE TABLE IF NOT EXISTS stock_movements (

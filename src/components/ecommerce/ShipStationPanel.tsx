@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import {
-  Truck, Check, AlertTriangle, RefreshCw, Link2, Eye, EyeOff, Save, PackageMinus
+  Truck, Check, AlertTriangle, RefreshCw, Link2, Eye, EyeOff, Save, PackageMinus, Trash2
 } from 'lucide-react';
 
 interface Store {
@@ -53,6 +53,10 @@ export const ShipStationPanel: React.FC = () => {
   const [deductOnSync, setDeductOnSync] = useState(false);
 
   const [skus, setSkus] = useState<SkuRow[]>([]);
+  const [rules, setRules] = useState<any[]>([]);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suggestBlank, setSuggestBlank] = useState<Record<string, string>>({});
+  const [suggestBox, setSuggestBox] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -72,7 +76,18 @@ export const ShipStationPanel: React.FC = () => {
     } catch { setSkus([]); }
   };
 
-  useEffect(() => { load(); loadSkus(); }, []);
+  const loadRules = async () => {
+    try {
+      const [r, sg] = await Promise.all([
+        fetch('/api/shipstation/rules').then(x => x.json()),
+        fetch('/api/shipstation/rules/suggest').then(x => x.json())
+      ]);
+      setRules(Array.isArray(r) ? r : []);
+      setSuggestions(sg.suggestions || []);
+    } catch { setRules([]); setSuggestions([]); }
+  };
+
+  useEffect(() => { load(); loadSkus(); loadRules(); }, []);
 
   const run = async (label: string, fn: () => Promise<any>) => {
     setBusy(label); setError(null); setNotice(null);
@@ -134,6 +149,33 @@ export const ShipStationPanel: React.FC = () => {
         body: JSON.stringify({ sku, blankItemId: blankItemId || null, packagingItemId: packagingItemId || null })
       }).then(r => r.json());
       if (!data.error) { await loadSkus(); await refreshAll(); }
+      return data;
+    });
+
+  const applyRule = (pattern: string, blankItemId: string, packagingItemId: string) =>
+    run('rule', async () => {
+      const saved = await fetch('/api/shipstation/rules', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pattern, blankItemId, packagingItemId: packagingItemId || null })
+      }).then(r => r.json());
+      if (saved.error) return saved;
+      // A new rule only helps if it reaches orders already fetched
+      const re = await fetch('/api/shipstation/orders/reresolve', { method: 'POST' }).then(r => r.json());
+      await Promise.all([loadRules(), loadSkus(), refreshAll()]);
+      return { message: `${saved.message}. ${re.message || ''}`.trim() };
+    });
+
+  const deleteRule = (id: string) =>
+    run('rule', async () => {
+      const data = await fetch(`/api/shipstation/rules/${id}`, { method: 'DELETE' }).then(r => r.json());
+      await Promise.all([loadRules(), loadSkus(), refreshAll()]);
+      return data;
+    });
+
+  const reresolve = () =>
+    run('reresolve', async () => {
+      const data = await fetch('/api/shipstation/orders/reresolve', { method: 'POST' }).then(r => r.json());
+      await Promise.all([loadSkus(), loadRules(), refreshAll()]);
       return data;
     });
 
@@ -299,6 +341,103 @@ export const ShipStationPanel: React.FC = () => {
             </p>
           </div>
 
+          {/* Mapping rules */}
+          <div className="space-y-3 rounded-xl border border-slate-200 p-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className={label}>Mapping rules</span>
+                <p className="text-xs text-slate-500">
+                  One rule covers a whole family of SKUs, including designs you haven&rsquo;t sold yet.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={reresolve}
+                disabled={busy === 'reresolve'}
+                className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {busy === 'reresolve' ? 'Re-checking…' : 'Re-check orders'}
+              </button>
+            </div>
+
+            {/* Suggested patterns */}
+            {suggestions.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-xs font-semibold text-indigo-700">
+                  Suggested from your unmapped SKUs
+                </span>
+                {suggestions.map(sg => (
+                  <div key={sg.pattern} className="flex flex-wrap items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50/50 px-2.5 py-2">
+                    <span className="font-mono text-xs font-bold text-slate-800">{sg.pattern}</span>
+                    <span className="text-xs text-slate-600">
+                      {sg.skuCount} SKUs · {sg.units} units
+                    </span>
+                    <span className="max-w-[220px] truncate text-xs text-slate-500" title={sg.sample.join(', ')}>
+                      {sg.sample.slice(0, 2).join(', ')}
+                    </span>
+
+                    <select
+                      aria-label={`Blank for ${sg.pattern}`}
+                      value={suggestBlank[sg.pattern] || ''}
+                      onChange={e => setSuggestBlank(v => ({ ...v, [sg.pattern]: e.target.value }))}
+                      className="ml-auto rounded border border-slate-200 px-1.5 py-1 font-mono text-xs"
+                    >
+                      <option value="">— blank —</option>
+                      {blanks.map(b => <option key={b.id} value={b.id}>{b.sku}</option>)}
+                    </select>
+                    <select
+                      aria-label={`Packaging for ${sg.pattern}`}
+                      value={suggestBox[sg.pattern] || ''}
+                      onChange={e => setSuggestBox(v => ({ ...v, [sg.pattern]: e.target.value }))}
+                      className="rounded border border-slate-200 px-1.5 py-1 font-mono text-xs"
+                    >
+                      <option value="">no packaging</option>
+                      {packaging.map(b => <option key={b.id} value={b.id}>{b.sku}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={!suggestBlank[sg.pattern] || busy === 'rule'}
+                      onClick={() => applyRule(sg.pattern, suggestBlank[sg.pattern], suggestBox[sg.pattern] || '')}
+                      className="rounded-lg border border-indigo-700 bg-indigo-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Create rule
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Active rules */}
+            {rules.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-xs font-semibold text-slate-600">Active rules</span>
+                {rules.map(r => (
+                  <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5">
+                    <span className="font-mono text-xs font-bold text-slate-800">{r.pattern}</span>
+                    <span className="text-xs text-slate-500">→</span>
+                    <span className="font-mono text-xs text-emerald-700">{r.blankSku}</span>
+                    {r.packagingSku && <span className="font-mono text-xs text-slate-600">+ {r.packagingSku}</span>}
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
+                      matches {r.matchCount}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => deleteRule(r.id)}
+                      aria-label={`Remove rule ${r.pattern}`}
+                      className="ml-auto rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {rules.length === 0 && suggestions.length === 0 && (
+              <p className="text-xs text-slate-500">Fetch orders and suggested rules appear here.</p>
+            )}
+          </div>
+
           {/* SKU mapping */}
           <div className="space-y-2 rounded-xl border border-slate-200 p-3.5">
             <div className="flex items-center justify-between">
@@ -350,7 +489,7 @@ export const ShipStationPanel: React.FC = () => {
                           {row.mapped ? (
                             <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-700">
                               <PackageMinus className="h-3 w-3" />
-                              {row.resolvedVia === 'exact_sku' ? 'matches catalogue' : 'mapped'}
+                              {row.resolvedVia === 'exact_sku' ? 'matches catalogue' : row.resolvedVia === 'rule' ? 'by rule' : 'mapped'}
                             </span>
                           ) : (
                             <span className="rounded bg-pink-100 px-1.5 py-0.5 font-semibold text-pink-700">not mapped</span>

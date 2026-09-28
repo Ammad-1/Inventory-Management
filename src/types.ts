@@ -181,6 +181,12 @@ export interface EcommerceOrder {
   grossProfit?: number;
   marginPercent?: number;
   createdAt: string;
+  storeName?: string;
+  externalOrderId?: string;
+  orderStatus?: string;
+  subTotal?: number;
+  totalTax?: number;
+  shippingAmount?: number;
 }
 
 export interface EcommerceChannelInfo {
