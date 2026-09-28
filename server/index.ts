@@ -10,6 +10,7 @@ import { xeroRouter, getValidAccessToken } from './routes/xero';
 import { createXeroPushRouter } from './routes/xeroPush';
 import { ecommerceRouter } from './routes/ecommerce';
 import { shopifyRouter } from './routes/shopify';
+import { shipstationRouter } from './routes/shipstation';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -60,6 +61,7 @@ app.use('/api/xero', xeroRouter);
 app.use('/api/xero', createXeroPushRouter(getValidAccessToken));
 app.use('/api/ecommerce', ecommerceRouter);
 app.use('/api/shopify', shopifyRouter);
+app.use('/api/shipstation', shipstationRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

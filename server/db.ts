@@ -313,6 +313,108 @@ export function initDatabase() {
     );
   `);
 
+  // 6c. ShipStation: one connection that covers every sales channel the
+  // business already routes through it, with SKUs normalised upstream.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shipstation_settings (
+      id TEXT PRIMARY KEY,
+      api_key TEXT,
+      api_secret TEXT,
+      auto_deduct INTEGER NOT NULL DEFAULT 0,
+      deduct_on_status TEXT NOT NULL DEFAULT 'awaiting_shipment',
+      account_name TEXT,
+      connected_at TEXT,
+      last_synced_at TEXT,
+      updated_at TEXT
+    );
+  `);
+
+  // Channel stores as ShipStation reports them (Gaffco eBay, Gaffco.uk Shopify...)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shipstation_stores (
+      store_id INTEGER PRIMARY KEY,
+      store_name TEXT NOT NULL,
+      marketplace TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  // Channel-agnostic SKU mapping: a sold SKU to the blank + packaging it eats
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS channel_sku_map (
+      sku TEXT PRIMARY KEY,
+      blank_item_id TEXT,
+      packaging_item_id TEXT,
+      units_per_sale INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  // ecommerce_orders was limited to four hardcoded platforms and had nowhere
+  // to record which ShipStation store an order came from, or its status.
+  try {
+    const info = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='ecommerce_orders'").get() as { sql: string } | undefined;
+    const cols = new Set((db.prepare('PRAGMA table_info(ecommerce_orders)').all() as any[]).map(c => c.name));
+
+    for (const [col, ddl] of [
+      ['store_name', "ALTER TABLE ecommerce_orders ADD COLUMN store_name TEXT;"],
+      ['external_order_id', 'ALTER TABLE ecommerce_orders ADD COLUMN external_order_id TEXT;'],
+      ['order_status', 'ALTER TABLE ecommerce_orders ADD COLUMN order_status TEXT;'],
+      ['shipping_amount', 'ALTER TABLE ecommerce_orders ADD COLUMN shipping_amount REAL;']
+    ] as [string, string][]) {
+      if (!cols.has(col)) db.exec(ddl);
+    }
+
+    if (info && info.sql.includes("CHECK(platform IN ('shopify', 'amazon', 'ebay', 'tiktok'))")) {
+      db.exec(`
+        PRAGMA foreign_keys = OFF;
+        ALTER TABLE ecommerce_orders RENAME TO ecommerce_orders_old;
+        CREATE TABLE ecommerce_orders (
+          id TEXT PRIMARY KEY,
+          order_number TEXT UNIQUE NOT NULL,
+          platform TEXT NOT NULL,
+          store_name TEXT,
+          external_order_id TEXT,
+          order_status TEXT,
+          customer_name TEXT NOT NULL,
+          order_date TEXT NOT NULL,
+          total_amount REAL NOT NULL DEFAULT 0,
+          sub_total REAL,
+          total_tax REAL,
+          shipping_amount REAL,
+          currency TEXT NOT NULL DEFAULT 'GBP',
+          status TEXT NOT NULL DEFAULT 'paid',
+          items_json TEXT NOT NULL,
+          stock_deducted INTEGER NOT NULL DEFAULT 1,
+          deducted_at TEXT,
+          total_landed_cost REAL NOT NULL DEFAULT 0,
+          gross_profit REAL NOT NULL DEFAULT 0,
+          margin_percent REAL NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO ecommerce_orders (
+          id, order_number, platform, store_name, external_order_id, order_status,
+          customer_name, order_date, total_amount, sub_total, total_tax, shipping_amount,
+          currency, status, items_json, stock_deducted, deducted_at,
+          total_landed_cost, gross_profit, margin_percent, created_at
+        )
+        SELECT
+          id, order_number, platform, store_name, external_order_id, order_status,
+          customer_name, order_date, total_amount, sub_total, total_tax, shipping_amount,
+          currency, status, items_json, stock_deducted, deducted_at,
+          total_landed_cost, gross_profit, margin_percent, created_at
+        FROM ecommerce_orders_old;
+        DROP TABLE ecommerce_orders_old;
+        PRAGMA foreign_keys = ON;
+      `);
+      console.log('[Database] ecommerce_orders now accepts any channel and records its store');
+    }
+  } catch (err) {
+    console.error('[Database] ecommerce_orders migration failed:', err);
+  }
+
   // 7. Stock movements (Immutable audit ledger)
   db.exec(`
     CREATE TABLE IF NOT EXISTS stock_movements (

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
+import { ShipStationPanel } from './ShipStationPanel';
 import { ShopifyConnectPanel } from './ShopifyConnectPanel';
 import { 
   ShoppingBag, 
@@ -183,10 +184,12 @@ export const EcommerceView: React.FC = () => {
           </span>
         </div>
 
+        <ShipStationPanel />
+
         <ShopifyConnectPanel />
 
         <p className="pt-1 text-xs text-slate-500">
-          Not yet built. Orders from these channels can still be recorded by hand or with the test tool below.
+          No direct integration. Orders from these channels arrive through ShipStation above.
         </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {ecommerceChannels.filter(c => c.id !== 'shopify').map(channel => {
