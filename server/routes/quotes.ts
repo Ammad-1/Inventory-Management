@@ -7,6 +7,7 @@ import {
   mirrorInvoiceLocally, deductForInvoice
 } from '../services/xeroInvoice';
 import { buildInvoiceLines, resolveStockForLines } from '../services/quoteToInvoice';
+import { buildQuotePdf, CompanyDetails } from '../services/quotePdf';
 
 /**
  * Quotes.
@@ -61,6 +62,46 @@ quotesRouter.get('/reference', (_req: Request, res: Response) => {
       })),
       marginToMarkup: [20, 25, 30].map(pct => ({ marginPct: pct, markupPct: marginToMarkup(pct) }))
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+quotesRouter.get('/company', (_req: Request, res: Response) => {
+  try {
+    const row = db.prepare('SELECT * FROM company_details WHERE id = ?').get('primary') as any;
+    res.json({
+      name: row?.name || '',
+      addressLines: row?.address_lines || '',
+      email: row?.email || '',
+      phone: row?.phone || '',
+      website: row?.website || '',
+      vatNumber: row?.vat_number || '',
+      registrationNumber: row?.registration_number || '',
+      quoteTerms: row?.quote_terms || ''
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+quotesRouter.put('/company', (req: Request, res: Response) => {
+  try {
+    const b = req.body || {};
+    if (!b.name || !String(b.name).trim()) {
+      return res.status(400).json({ error: 'Company name is required — it is the letterhead' });
+    }
+    db.prepare(`
+      UPDATE company_details SET
+        name = ?, address_lines = ?, email = ?, phone = ?,
+        website = ?, vat_number = ?, registration_number = ?, quote_terms = ?, updated_at = ?
+      WHERE id = 'primary'
+    `).run(
+      String(b.name).trim(), b.addressLines || null, b.email || null, b.phone || null,
+      b.website || null, b.vatNumber || null, b.registrationNumber || null,
+      b.quoteTerms || null, now()
+    );
+    res.json({ success: true, message: 'Company details saved' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -646,6 +687,49 @@ quotesRouter.post('/:id/invoice', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[Quote Invoice Error]', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+
+/* ------------------------------------------------------------- documents */
+
+function getCompany(): CompanyDetails {
+  const row = db.prepare('SELECT * FROM company_details WHERE id = ?').get('primary') as any;
+  return {
+    name: row?.name || 'PrintBerry Ltd',
+    addressLines: row?.address_lines ? String(row.address_lines).split('\n').filter(Boolean) : [],
+    email: row?.email || '',
+    phone: row?.phone || '',
+    website: row?.website || '',
+    vatNumber: row?.vat_number || ''
+  };
+}
+
+/**
+ * The quote as a PDF. `?disposition=inline` renders it in the browser for
+ * the preview; the default prompts a download.
+ */
+quotesRouter.get('/:id/pdf', (req: Request, res: Response) => {
+  try {
+    const quote = db.prepare('SELECT quote_number FROM quotes WHERE id = ?').get(req.params.id) as any;
+    if (!quote) return res.status(404).json({ error: 'Quote not found' });
+
+    const inline = req.query.disposition === 'inline';
+    const filename = `Quote-${quote.quote_number}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `${inline ? 'inline' : 'attachment'}; filename="${filename}"`
+    );
+
+    const doc = buildQuotePdf(req.params.id, getCompany());
+    doc.pipe(res);
+    doc.end();
+  } catch (err: any) {
+    // Headers may already be out by the time a render fails
+    if (res.headersSent) res.end();
+    else res.status(500).json({ error: err.message });
   }
 });
 

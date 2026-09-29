@@ -689,6 +689,31 @@ export function initDatabase() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_quote_decs_line ON quote_line_decorations(quote_line_id);');
   db.exec('CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes(status, quote_date DESC);');
 
+  /* ------------------------------------------------------------------
+   * Company details, for the letterhead on customer-facing documents.
+   * One row; there is only ever one company.
+   * ---------------------------------------------------------------- */
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS company_details (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      address_lines TEXT,
+      email TEXT,
+      phone TEXT,
+      website TEXT,
+      vat_number TEXT,
+      registration_number TEXT,
+      quote_terms TEXT,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  db.prepare(`
+    INSERT OR IGNORE INTO company_details (id, name, updated_at)
+    VALUES ('primary', 'PrintBerry Ltd', ?)
+  `).run(new Date().toISOString());
+
   // 7. Stock movements (Immutable audit ledger)
   db.exec(`
     CREATE TABLE IF NOT EXISTS stock_movements (
