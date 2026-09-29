@@ -18,7 +18,8 @@ export default defineConfig(() => {
       watch: { ignored: ['**/*.db', '**/*.db-*'] },
       proxy: {
         '/api': {
-          target: 'http://localhost:5000',
+          // Matches the API's default port; override both with API_PORT
+          target: `http://127.0.0.1:${process.env.API_PORT || 5000}`,
           changeOrigin: true,
         },
       },

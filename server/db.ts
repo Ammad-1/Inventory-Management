@@ -435,6 +435,141 @@ export function initDatabase() {
     );
   `);
 
+  /* ------------------------------------------------------------------
+   * QUOTING — product catalogue
+   *
+   * A "product" here is a sellable configuration (Mug - White 11oz), not a
+   * blank. The blank it consumes lives in inventory_items; blank_item_id is
+   * the link, so a quote can price against real landed cost rather than a
+   * typed-in guess.
+   * ---------------------------------------------------------------- */
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS product_categories (
+      id TEXT PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  // Print areas are per category: a mug has a handle, a hoodie has a pocket
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS print_areas (
+      id TEXT PRIMARY KEY,
+      category_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(category_id, name),
+      FOREIGN KEY (category_id) REFERENCES product_categories(id)
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS decoration_types (
+      id TEXT PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS products (
+      id TEXT PRIMARY KEY,
+      sku TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      notes TEXT,
+      category_id TEXT,
+      type TEXT,
+      colour TEXT,
+      size TEXT,
+      supplier_name TEXT,
+      supplier_product_link TEXT,
+      image_url TEXT,
+      -- what this product consumes from stock when it is made
+      blank_item_id TEXT,
+      packaging_item_id TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (category_id) REFERENCES product_categories(id),
+      FOREIGN KEY (blank_item_id) REFERENCES inventory_items(id)
+    );
+  `);
+
+  // Which of the category's print areas this particular product offers
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS product_print_areas (
+      product_id TEXT NOT NULL,
+      print_area_id TEXT NOT NULL,
+      PRIMARY KEY (product_id, print_area_id),
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+      FOREIGN KEY (print_area_id) REFERENCES print_areas(id)
+    );
+  `);
+
+  // The pricing matrix: one row per decoration type x print area
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS product_pricing (
+      id TEXT PRIMARY KEY,
+      product_id TEXT NOT NULL,
+      decoration_type_id TEXT NOT NULL,
+      print_area_id TEXT NOT NULL,
+      setup_cost REAL NOT NULL DEFAULT 0,
+      unit_cost REAL NOT NULL DEFAULT 0,
+      min_charge REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL,
+      UNIQUE(product_id, decoration_type_id, print_area_id),
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS product_variants (
+      id TEXT PRIMARY KEY,
+      product_id TEXT NOT NULL,
+      brand TEXT,
+      quality TEXT,
+      colour TEXT,
+      size TEXT,
+      base_cost REAL NOT NULL DEFAULT 0,
+      price_adjustment REAL NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    );
+  `);
+
+  // Seed the categories, their print areas and the decoration types from the
+  // agreed layout. Seeded once; edits afterwards are the user's.
+  const catCount = (db.prepare('SELECT COUNT(*) as c FROM product_categories').get() as any).c;
+  if (catCount === 0) {
+    const insCat = db.prepare('INSERT INTO product_categories (id, name, sort_order) VALUES (?, ?, ?)');
+    const insArea = db.prepare('INSERT INTO print_areas (id, category_id, name, sort_order) VALUES (?, ?, ?, ?)');
+
+    const categories: [string, string, string[]][] = [
+      ['cat-mug', 'Mug', ['Main Body', 'Full Wrap', 'Backstamp', 'Inside Base', 'Colour Banding', 'Inner Rim', 'Handle Print', 'Handle Flash']],
+      ['cat-tshirt', 'T-Shirt', ['Left Chest', 'Center Chest', 'Full Front', 'Oversized Front', 'Back Collar', 'Upper Back', 'Full Back', 'Sleeve']],
+      ['cat-hoodie', 'Hoodie', ['Pocket Size', 'Full Chest', 'Full Front', 'Full Back', 'Back Neck', 'Back Shoulders', 'Left Sleeve', 'Right Sleeve']],
+      ['cat-tote', 'Tote Bag', ['Front', 'Back']],
+      ['cat-bottle', 'Bottle', ['Main Body', 'Full Wrap', 'Base']]
+    ];
+
+    categories.forEach(([id, name, areas], ci) => {
+      insCat.run(id, name, ci);
+      areas.forEach((a, ai) => insArea.run(`${id}-${ai}`, id, a, ai));
+    });
+
+    const insDec = db.prepare('INSERT INTO decoration_types (id, name, sort_order) VALUES (?, ?, ?)');
+    ['Sublimation', 'DTG', 'DTF', 'UV', 'UV DTF', 'Screen Print', 'Embroidery', 'Laser Engraving']
+      .forEach((n, i) => insDec.run(`dec-${n.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, n, i));
+
+    console.log('[Database] Seeded product categories, print areas and decoration types');
+  }
+
   // 7. Stock movements (Immutable audit ledger)
   db.exec(`
     CREATE TABLE IF NOT EXISTS stock_movements (

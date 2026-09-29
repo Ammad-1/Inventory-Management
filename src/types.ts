@@ -5,6 +5,7 @@ export type ActiveView =
   | 'xero'
   | 'ecommerce'
   | 'bom'
+  | 'products'
   | 'movements';
 
 export type ItemCategory = 'blank' | 'packaging' | 'consumable' | 'finished_goods';
@@ -369,4 +370,88 @@ export interface ImportPreview {
   toSkip: number;
   withWarnings: number;
   rows: ImportRow[];
+}
+
+/* ---------------------------------------------------------------------
+ * Quoting catalogue
+ *
+ * A Product is a sellable configuration (Mug - White 11oz), not a blank.
+ * blankItemId points at the InventoryItem it consumes, so a quote prices
+ * against real landed cost rather than a typed-in guess.
+ * ------------------------------------------------------------------- */
+
+export interface PrintArea {
+  id: string;
+  categoryId: string;
+  name: string;
+}
+
+export interface ProductCategory {
+  id: string;
+  name: string;
+  printAreas: PrintArea[];
+}
+
+export interface DecorationType {
+  id: string;
+  name: string;
+}
+
+export interface ProductReference {
+  categories: ProductCategory[];
+  decorationTypes: DecorationType[];
+}
+
+/** One cell of the decoration x print-area pricing matrix. */
+export interface ProductPricing {
+  id?: string;
+  decorationTypeId: string;
+  decorationType?: string;
+  printAreaId: string;
+  printArea?: string;
+  setupCost: number;
+  unitCost: number;
+  minCharge: number;
+  notes?: string | null;
+  active?: number;
+}
+
+export interface ProductVariant {
+  id?: string;
+  brand?: string | null;
+  quality?: string | null;
+  colour?: string | null;
+  size?: string | null;
+  baseCost: number;
+  priceAdjustment: number;
+  finalPrice?: number;
+  active?: number;
+}
+
+export interface Product {
+  id: string;
+  sku: string;
+  name: string;
+  description?: string | null;
+  notes?: string | null;
+  categoryId?: string | null;
+  categoryName?: string | null;
+  type?: string | null;
+  colour?: string | null;
+  size?: string | null;
+  supplierName?: string | null;
+  supplierProductLink?: string | null;
+  imageUrl?: string | null;
+  blankItemId?: string | null;
+  blankSku?: string | null;
+  blankStock?: number | null;
+  packagingItemId?: string | null;
+  packagingSku?: string | null;
+  /** Landed cost of the blank plus its packaging. */
+  stockCost: number;
+  active: number;
+  printAreas: { id: string; name: string }[];
+  pricing: ProductPricing[];
+  variants: ProductVariant[];
+  updatedAt: string;
 }

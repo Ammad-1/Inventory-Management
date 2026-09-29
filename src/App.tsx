@@ -9,6 +9,7 @@ import { XeroInvoicesView } from './components/xero/XeroInvoicesView';
 import { BOMView } from './components/bom/BOMView';
 import { AuditLogView } from './components/audit/AuditLogView';
 import { EcommerceView } from './components/ecommerce/EcommerceView';
+import { ProductCatalogueView } from './components/products/ProductCatalogueView';
 
 // Modals
 import { StockAdjustModal } from './components/modals/StockAdjustModal';
@@ -100,6 +101,10 @@ const MainAppContent: React.FC = () => {
 
           {activeView === 'ecommerce' && (
             <EcommerceView />
+          )}
+
+          {activeView === 'products' && (
+            <ProductCatalogueView />
           )}
 
           {activeView === 'bom' && (

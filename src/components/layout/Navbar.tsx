@@ -7,7 +7,8 @@ import {
   Ship, 
   FileText, 
   ShoppingBag,
-  Layers, 
+  Layers,
+  Tag,
   History, 
   Printer,
   User,
@@ -27,6 +28,7 @@ export const Navbar: React.FC = () => {
     { id: 'shipments', label: 'Transit', icon: Ship, badge: inTransitCount > 0 ? inTransitCount : undefined },
     { id: 'ecommerce', label: 'Online Stores', icon: ShoppingBag, badge: ecommerceOrders.length > 0 ? ecommerceOrders.length : undefined },
     { id: 'xero', label: 'Xero Sync', icon: FileText, badge: pendingInvoices > 0 ? pendingInvoices : undefined },
+    { id: 'products', label: 'Products', icon: Tag },
     { id: 'bom', label: 'Recipes', icon: Layers },
     { id: 'movements', label: 'Audit Logs', icon: History },
   ];
