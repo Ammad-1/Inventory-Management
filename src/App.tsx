@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { InventoryProvider, useInventory } from './context/InventoryContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { SignIn } from './components/auth/SignIn';
 import { Navbar } from './components/layout/Navbar';
 import { Header } from './components/layout/Header';
 import { DashboardView } from './components/dashboard/DashboardView';
@@ -168,10 +171,36 @@ const MainAppContent: React.FC = () => {
   );
 };
 
-export default function App() {
+/**
+ * Nothing loads until there is a session. The inventory provider starts
+ * fetching as soon as it mounts, so it sits inside the gate rather than
+ * outside it, where every request would come back 401.
+ */
+const Gate: React.FC = () => {
+  const { loading, user } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+        </div>
+      </div>
+    );
+  }
+  if (!user) return <SignIn />;
+
   return (
     <InventoryProvider>
       <MainAppContent />
     </InventoryProvider>
+  );
+};
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Gate />
+    </AuthProvider>
   );
 }

@@ -8,6 +8,7 @@ import { QuoteBuilder } from './QuoteBuilder';
 import { InvoiceQuoteModal } from './InvoiceQuoteModal';
 import { CompanyDetailsModal } from './CompanyDetailsModal';
 import { takePendingQuoteProduct } from '../../lib/quoteHandoff';
+import { useCanSeeFinancials } from '../../context/AuthContext';
 
 const STATUS_STYLES: Record<QuoteStatus, string> = {
   draft: 'bg-slate-100 text-slate-600 border-slate-200',
@@ -26,6 +27,7 @@ const FILTERS: { id: QuoteStatus | 'all'; label: string }[] = [
 ];
 
 export const QuotesView: React.FC = () => {
+  const showMoney = useCanSeeFinancials();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [reference, setReference] = useState<QuoteReference | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -185,7 +187,7 @@ export const QuotesView: React.FC = () => {
       )}
 
       {quotes.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className={`grid grid-cols-2 gap-3 ${showMoney ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Out with customers</div>
             <div className="text-lg font-bold text-slate-900 tabular-nums mt-0.5">{money(pipeline.openValue)}</div>
@@ -207,13 +209,13 @@ export const QuotesView: React.FC = () => {
                 : `${pipeline.toInvoiceCount} accepted quote${pipeline.toInvoiceCount === 1 ? '' : 's'} still to invoice`}
             </div>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
+          {showMoney && <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Profit on accepted</div>
             <div className="text-lg font-bold text-emerald-600 tabular-nums mt-0.5">{money(pipeline.wonProfit)}</div>
             <div className="text-[11px] text-slate-500">
               {pipeline.wonValue > 0 ? `${((pipeline.wonProfit / pipeline.wonValue) * 100).toFixed(1)}% margin` : 'No accepted quotes yet'}
             </div>
-          </div>
+          </div>}
         </div>
       )}
 
@@ -270,7 +272,7 @@ export const QuotesView: React.FC = () => {
                   <th className="text-left font-bold px-4 py-2.5">Date</th>
                   <th className="text-right font-bold px-4 py-2.5">Ex VAT</th>
                   <th className="text-right font-bold px-4 py-2.5">To pay</th>
-                  <th className="text-right font-bold px-4 py-2.5">Margin</th>
+                  {showMoney && <th className="text-right font-bold px-4 py-2.5">Margin</th>}
                   <th className="text-left font-bold px-4 py-2.5">Status</th>
                   <th className="px-4 py-2.5"></th>
                 </tr>
@@ -303,12 +305,14 @@ export const QuotesView: React.FC = () => {
                       {money(q.grossTotal)}
                       <div className="text-[10px] font-medium text-slate-400">inc. {money(q.vatTotal)} VAT</div>
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      <span className={q.marginPct >= 20 ? 'text-emerald-600 font-semibold' : 'text-amber-600 font-semibold'}>
-                        {q.marginPct}%
-                      </span>
-                      <div className="text-[10px] text-slate-400">{q.markupPct}% markup</div>
-                    </td>
+                    {showMoney && (
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        <span className={q.marginPct >= 20 ? 'text-emerald-600 font-semibold' : 'text-amber-600 font-semibold'}>
+                          {q.marginPct}%
+                        </span>
+                        <div className="text-[10px] text-slate-400">{q.markupPct}% markup</div>
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${STATUS_STYLES[q.status]}`}>
                         {q.status}

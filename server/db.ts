@@ -841,6 +841,42 @@ export function initDatabase() {
     console.log('[Database] Seeded product option lists');
   }
 
+  /* ------------------------------------------------------------------
+   * Accounts and sessions.
+   *
+   * Roles decide what a person may see, and the owner role is the only one
+   * shown cost and profit. No account is seeded: the first one is created
+   * through the setup screen, so this ships without a default password.
+   * ---------------------------------------------------------------- */
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('owner','sales','production')),
+      active INTEGER NOT NULL DEFAULT 1,
+      last_login_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);');
+
+  // Expired rows serve no purpose and would grow without bound
+  db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
+
   // 7. Stock movements (Immutable audit ledger)
   db.exec(`
     CREATE TABLE IF NOT EXISTS stock_movements (

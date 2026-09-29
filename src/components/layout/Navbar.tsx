@@ -1,5 +1,7 @@
 import React from 'react';
 import { useInventory } from '../../context/InventoryContext';
+import { useAuth } from '../../context/AuthContext';
+import { UsersModal } from '../auth/UsersModal';
 import { ActiveView } from '../../types';
 import { 
   LayoutDashboard, 
@@ -13,11 +15,22 @@ import {
   History, 
   Printer,
   User,
-  ChevronDown
+  ChevronDown,
+  LogOut,
+  Users as UsersIcon
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const { activeView, setActiveView, inventory, shipments, invoices, ecommerceOrders } = useInventory();
+  const { user, signOut } = useAuth();
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [usersOpen, setUsersOpen] = React.useState(false);
+
+  const ROLE_LABEL: Record<string, string> = {
+    owner: 'Owner', sales: 'Sales', production: 'Production'
+  };
+  const initials = (user?.name || '?')
+    .split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 
   const lowStockCount = inventory.filter(i => i.currentStock <= i.reorderPoint).length;
   const inTransitCount = shipments.filter(s => s.status === 'on_water' || s.status === 'customs_clearance').length;
@@ -83,15 +96,46 @@ export const Navbar: React.FC = () => {
 
           {/* Right Profile & Actions */}
           <div className="flex items-center space-x-3 shrink-0">
-            <div className="flex items-center space-x-2.5 p-1.5 pl-2.5 rounded-xl hover:bg-slate-50 transition-all cursor-pointer border border-slate-200/60 shadow-xs">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                PB
-              </div>
-              <div className="hidden lg:block text-left">
-                <div className="text-xs font-bold text-slate-800 leading-tight">Admin</div>
-                <div className="text-[10px] text-slate-400 font-medium leading-tight">UK Warehouse</div>
-              </div>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
+            <div className="relative">
+              <button onClick={() => setMenuOpen(o => !o)}
+                className="flex items-center space-x-2.5 p-1.5 pl-2.5 rounded-xl hover:bg-slate-50 transition-all border border-slate-200/60 shadow-xs">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                  {initials}
+                </div>
+                <div className="hidden lg:block text-left">
+                  <div className="text-xs font-bold text-slate-800 leading-tight">{user?.name}</div>
+                  <div className="text-[10px] text-slate-400 font-medium leading-tight">
+                    {ROLE_LABEL[user?.role || ''] || user?.role}
+                  </div>
+                </div>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
+              </button>
+
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                  <div className="absolute right-0 mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-lg z-50 overflow-hidden">
+                    <div className="px-3 py-2.5 border-b border-slate-100">
+                      <div className="text-xs font-bold text-slate-800">{user?.name}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{user?.email}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {ROLE_LABEL[user?.role || ''] || user?.role}
+                        {user?.role !== 'owner' && ' · cost and profit are hidden'}
+                      </div>
+                    </div>
+                    {user?.role === 'owner' && (
+                      <button onClick={() => { setMenuOpen(false); setUsersOpen(true); }}
+                        className="w-full text-left px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                        <UsersIcon className="w-3.5 h-3.5 text-slate-400" /> People &amp; access
+                      </button>
+                    )}
+                    <button onClick={signOut}
+                      className="w-full text-left px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                      <LogOut className="w-3.5 h-3.5 text-slate-400" /> Sign out
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           
@@ -119,6 +163,8 @@ export const Navbar: React.FC = () => {
             );
           })}
       </div>
+
+      {usersOpen && <UsersModal onClose={() => setUsersOpen(false)} />}
     </nav>
   );
 };

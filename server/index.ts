@@ -13,6 +13,8 @@ import { shopifyRouter } from './routes/shopify';
 import { shipstationRouter } from './routes/shipstation';
 import { productsRouter } from './routes/products';
 import { createQuotesRouter } from './routes/quotes';
+import { authRouter } from './routes/auth';
+import { attachUser, requireAuth, redactResponses } from './services/auth';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -53,6 +55,20 @@ app.use(express.json({
 
 // Initialize SQLite schema and seed data
 initDatabase();
+
+/*
+ * Authentication, before any route that could read or change data.
+ *
+ * attachUser identifies the caller, requireAuth turns away anyone without a
+ * session except the webhook and OAuth paths, and redactResponses strips
+ * cost and profit from every reply to a role that may not see them. The
+ * redaction sits here rather than in each handler so a route added later
+ * cannot forget it.
+ */
+app.use(attachUser);
+app.use('/api/auth', authRouter);
+app.use(requireAuth);
+app.use(redactResponses);
 
 // API routes
 app.use('/api/inventory', inventoryImportRouter);

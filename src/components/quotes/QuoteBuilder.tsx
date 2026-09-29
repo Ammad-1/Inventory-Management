@@ -5,6 +5,7 @@ import {
 import { Product, Quote, QuoteLine, QuoteReference } from '../../types';
 import { calculateQuote } from '../../../shared/quotePricing';
 import { QuoteLineEditor } from './QuoteLineEditor';
+import { useCanSeeFinancials } from '../../context/AuthContext';
 
 interface Props {
   onClose: () => void;
@@ -37,6 +38,7 @@ const CARD = 'rounded-xl border border-slate-200 bg-white p-3.5';
 export const QuoteBuilder: React.FC<Props> = ({
   onClose, onSaved, quote, reference, products, startProductId
 }) => {
+  const showMoney = useCanSeeFinancials();
   const [draft, setDraft] = useState(emptyDraft());
   const [lines, setLines] = useState<QuoteLine[]>([]);
   const [editingLine, setEditingLine] = useState<number | null>(null);
@@ -353,7 +355,7 @@ export const QuoteBuilder: React.FC<Props> = ({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-end gap-2 mt-3 pt-3 border-t border-slate-100">
+                <div className={`flex flex-wrap items-end gap-2 mt-3 pt-3 border-t border-slate-100 ${showMoney ? '' : 'hidden'}`}>
                   <div className="flex items-end gap-1.5">
                     {reference?.markupPresets.map(p => (
                       <button key={p.markupPct} disabled={locked}
@@ -386,9 +388,11 @@ export const QuoteBuilder: React.FC<Props> = ({
                       onChange={e => setDraft({ ...draft, discount: Number(e.target.value) || 0 })} disabled={locked} />
                   </div>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-2">
-                  Shipping and express are costs of the job, so markup applies to them too.
-                </p>
+                {showMoney && (
+                  <p className="text-[10px] text-slate-500 mt-2">
+                    Shipping and express are costs of the job, so markup applies to them too.
+                  </p>
+                )}
               </section>
 
               <section className={CARD}>
@@ -423,7 +427,7 @@ export const QuoteBuilder: React.FC<Props> = ({
                 </dl>
               </section>
 
-              <section className={CARD}>
+              {showMoney && <section className={CARD}>
                 <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Our side</h3>
                 <dl className="space-y-1 text-[13px]">
                   <div className="flex justify-between"><dt className="text-slate-600">Goods</dt><dd className="tabular-nums">{money(totals.goodsCost)}</dd></div>
@@ -445,7 +449,7 @@ export const QuoteBuilder: React.FC<Props> = ({
                 <p className="text-[10px] text-slate-400 mt-2 leading-snug">
                   Cost is net of VAT — supplier VAT is reclaimable.
                 </p>
-              </section>
+              </section>}
             </div>
           </div>
         </div>

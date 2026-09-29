@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Product, ProductReference } from '../../types';
 import { ProductEditorModal } from './ProductEditorModal';
+import { useCanSeeFinancials } from '../../context/AuthContext';
 
 /**
  * The quoting catalogue: sellable configurations with their decoration
@@ -12,6 +13,7 @@ import { ProductEditorModal } from './ProductEditorModal';
  * priced against real landed cost.
  */
 export const ProductCatalogueView: React.FC = () => {
+  const showMoney = useCanSeeFinancials();
   const [products, setProducts] = useState<Product[]>([]);
   const [reference, setReference] = useState<ProductReference | null>(null);
   const [loading, setLoading] = useState(true);
@@ -180,16 +182,18 @@ export const ProductCatalogueView: React.FC = () => {
                   </div>
 
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Stock cost</div>
-                      <div className="font-bold text-slate-800 tabular-nums">£{p.stockCost.toFixed(2)}</div>
-                    </div>
-                    <div>
+                    {showMoney && (
+                      <div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Stock cost</div>
+                        <div className="font-bold text-slate-800 tabular-nums">£{(p.stockCost ?? 0).toFixed(2)}</div>
+                      </div>
+                    )}
+                    {showMoney && <div>
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Decoration from</div>
                       <div className="font-bold text-slate-800 tabular-nums">
                         {from !== null ? `£${from.toFixed(2)}` : <span className="text-slate-400 font-medium">Not priced</span>}
                       </div>
-                    </div>
+                    </div>}
                   </div>
 
                   <div className="mt-3 space-y-1.5 text-[11px] text-slate-500">
