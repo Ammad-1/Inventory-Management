@@ -29,6 +29,7 @@ export const Header: React.FC<HeaderProps> = ({ onQuickScrap, onQuickAdjust, onQ
       case 'ecommerce': return 'Online Stores';
       case 'xero': return 'Xero Invoicing (2-Way Sync)';
       case 'products': return 'Product Catalogue';
+      case 'quotes': return 'Quotes';
       case 'bom': return 'Print Recipes & Landed Margins';
       case 'movements': return 'Stock Ledger & Activity';
       default: return 'Dashboard';
@@ -43,6 +44,7 @@ export const Header: React.FC<HeaderProps> = ({ onQuickScrap, onQuickAdjust, onQ
       case 'ecommerce': return 'Order intake from every sales channel via ShipStation, with automatic BOM explosion and stock deduction.';
       case 'xero': return 'Free two-way invoice synchronization with automated stock deductions.';
       case 'products': return 'Sellable products and their decoration pricing, each linked to the blank it consumes. Quotes are built from these.';
+      case 'quotes': return 'Priced from real landed cost. Markup applies to cost only, and the customer sees the total with and without VAT.';
       case 'bom': return 'Itemized print recipes with gross margin analytics and heat-press defect allowance (+2.5%).';
       case 'movements': return 'Full audit trail of container receipts, Xero sales deductions, and factory scrap logs.';
       default: return '';

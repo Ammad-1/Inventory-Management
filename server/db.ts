@@ -570,6 +570,125 @@ export function initDatabase() {
     console.log('[Database] Seeded product categories, print areas and decoration types');
   }
 
+  /* ------------------------------------------------------------------
+   * QUOTING - quotes
+   *
+   * Costs are snapshotted onto each line when it is added. A quote that
+   * has been sent is a promise at a price; a later change to a blank's
+   * landed cost must not silently rewrite what we told the customer.
+   *
+   * Totals are stored too, but only as the server computed them from
+   * shared/quotePricing.ts. Nothing here trusts a total sent by a client.
+   * ---------------------------------------------------------------- */
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sales_reps (
+      id TEXT PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      email TEXT,
+      active INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS quotes (
+      id TEXT PRIMARY KEY,
+      quote_number TEXT UNIQUE NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft','sent','accepted','declined','expired')),
+
+      contact_id TEXT,
+      customer_name TEXT NOT NULL,
+      customer_email TEXT,
+      customer_reference TEXT,
+      sales_rep TEXT,
+
+      quote_date TEXT NOT NULL,
+      valid_until TEXT,
+      lead_time TEXT,
+
+      billing_address TEXT,
+      delivery_address TEXT,
+      delivery_same_as_billing INTEGER NOT NULL DEFAULT 0,
+
+      carton_count INTEGER NOT NULL DEFAULT 0,
+      shipping_method TEXT,
+      shipping_cost REAL NOT NULL DEFAULT 0,
+      express_fee REAL NOT NULL DEFAULT 0,
+      shipping_notes TEXT,
+
+      markup_pct REAL NOT NULL DEFAULT 30,
+      vat_rate REAL NOT NULL DEFAULT 20,
+      discount REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+
+      -- server-computed, never taken from the client
+      goods_cost REAL NOT NULL DEFAULT 0,
+      total_cost REAL NOT NULL DEFAULT 0,
+      net_total REAL NOT NULL DEFAULT 0,
+      vat_total REAL NOT NULL DEFAULT 0,
+      gross_total REAL NOT NULL DEFAULT 0,
+      profit REAL NOT NULL DEFAULT 0,
+      margin_pct REAL NOT NULL DEFAULT 0,
+
+      -- set once the quote becomes a Xero invoice, so it cannot go twice
+      xero_invoice_id TEXT,
+      xero_invoice_number TEXT,
+
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sent_at TEXT,
+      decided_at TEXT,
+      FOREIGN KEY (contact_id) REFERENCES xero_contacts(contact_id)
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS quote_lines (
+      id TEXT PRIMARY KEY,
+      quote_id TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+
+      product_id TEXT,
+      -- snapshot: the product may later be renamed or deleted
+      product_sku TEXT,
+      product_name TEXT NOT NULL,
+      image_url TEXT,
+      description TEXT,
+
+      quantity INTEGER NOT NULL DEFAULT 1,
+      blank_cost REAL NOT NULL DEFAULT 0,
+      packaging_cost REAL NOT NULL DEFAULT 0,
+      decoration_unit_cost REAL NOT NULL DEFAULT 0,
+      setup_cost REAL NOT NULL DEFAULT 0,
+      min_charge REAL NOT NULL DEFAULT 0,
+
+      unit_cost REAL NOT NULL DEFAULT 0,
+      line_cost REAL NOT NULL DEFAULT 0,
+      min_charge_applied INTEGER NOT NULL DEFAULT 0,
+
+      FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS quote_line_decorations (
+      id TEXT PRIMARY KEY,
+      quote_line_id TEXT NOT NULL,
+      decoration_type_id TEXT,
+      decoration_name TEXT NOT NULL,
+      print_area_id TEXT,
+      print_area_name TEXT NOT NULL,
+      setup_cost REAL NOT NULL DEFAULT 0,
+      unit_cost REAL NOT NULL DEFAULT 0,
+      FOREIGN KEY (quote_line_id) REFERENCES quote_lines(id) ON DELETE CASCADE
+    );
+  `);
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_quote_lines_quote ON quote_lines(quote_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_quote_decs_line ON quote_line_decorations(quote_line_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes(status, quote_date DESC);');
+
   // 7. Stock movements (Immutable audit ledger)
   db.exec(`
     CREATE TABLE IF NOT EXISTS stock_movements (

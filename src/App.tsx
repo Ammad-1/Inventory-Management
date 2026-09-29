@@ -10,6 +10,7 @@ import { BOMView } from './components/bom/BOMView';
 import { AuditLogView } from './components/audit/AuditLogView';
 import { EcommerceView } from './components/ecommerce/EcommerceView';
 import { ProductCatalogueView } from './components/products/ProductCatalogueView';
+import { QuotesView } from './components/quotes/QuotesView';
 
 // Modals
 import { StockAdjustModal } from './components/modals/StockAdjustModal';
@@ -105,6 +106,10 @@ const MainAppContent: React.FC = () => {
 
           {activeView === 'products' && (
             <ProductCatalogueView />
+          )}
+
+          {activeView === 'quotes' && (
+            <QuotesView />
           )}
 
           {activeView === 'bom' && (

@@ -6,6 +6,7 @@ export type ActiveView =
   | 'ecommerce'
   | 'bom'
   | 'products'
+  | 'quotes'
   | 'movements';
 
 export type ItemCategory = 'blank' | 'packaging' | 'consumable' | 'finished_goods';
@@ -454,4 +455,99 @@ export interface Product {
   pricing: ProductPricing[];
   variants: ProductVariant[];
   updatedAt: string;
+}
+
+/* ---------------------------------------------------------------------
+ * Quotes
+ *
+ * Every money figure here is computed by the server from
+ * shared/quotePricing.ts. The builder previews with the same module so
+ * the number on screen is the number that gets stored.
+ * ------------------------------------------------------------------- */
+
+export type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'expired';
+
+export interface QuoteLineDecoration {
+  id?: string;
+  decorationTypeId?: string | null;
+  decorationName: string;
+  printAreaId?: string | null;
+  printAreaName: string;
+  /** Charged once for the line. */
+  setupCost: number;
+  /** Charged per unit. */
+  unitCost: number;
+}
+
+export interface QuoteLine {
+  id?: string;
+  productId?: string | null;
+  productSku?: string | null;
+  productName: string;
+  imageUrl?: string | null;
+  description?: string | null;
+  quantity: number;
+  /** Snapshotted from the linked stock item when the line was added. */
+  blankCost: number;
+  packagingCost: number;
+  decorationUnitCost?: number;
+  setupCost?: number;
+  minCharge: number;
+  unitCost?: number;
+  lineCost?: number;
+  minChargeApplied?: boolean;
+  decorations: QuoteLineDecoration[];
+}
+
+export interface Quote {
+  id: string;
+  quoteNumber: string;
+  status: QuoteStatus;
+  contactId?: string | null;
+  customerName: string;
+  customerEmail?: string | null;
+  customerReference?: string | null;
+  salesRep?: string | null;
+  quoteDate: string;
+  validUntil?: string | null;
+  leadTime?: string | null;
+  billingAddress?: string | null;
+  deliveryAddress?: string | null;
+  deliverySameAsBilling: boolean;
+  cartonCount: number;
+  shippingMethod?: string | null;
+  shippingCost: number;
+  expressFee: number;
+  shippingNotes?: string | null;
+  /** Applied to net cost only. VAT is never marked up. */
+  markupPct: number;
+  vatRate: number;
+  discount: number;
+  notes?: string | null;
+  goodsCost: number;
+  totalCost: number;
+  /** What the customer pays before VAT. */
+  netTotal: number;
+  vatTotal: number;
+  /** What the customer actually pays. */
+  grossTotal: number;
+  profit: number;
+  marginPct: number;
+  xeroInvoiceId?: string | null;
+  xeroInvoiceNumber?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  sentAt?: string | null;
+  decidedAt?: string | null;
+  lines: QuoteLine[];
+}
+
+export interface QuoteReference {
+  customers: { contactId: string; name: string; email: string | null }[];
+  salesReps: { id: string; name: string; email: string | null }[];
+  shippingMethods: string[];
+  vatRates: { rate: number; label: string }[];
+  /** Each preset carries the margin it actually produces. */
+  markupPresets: { markupPct: number; marginPct: number }[];
+  marginToMarkup: { marginPct: number; markupPct: number }[];
 }

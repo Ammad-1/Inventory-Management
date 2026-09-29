@@ -9,6 +9,7 @@ import {
   ShoppingBag,
   Layers,
   Tag,
+  FileSignature,
   History, 
   Printer,
   User,
@@ -29,6 +30,7 @@ export const Navbar: React.FC = () => {
     { id: 'ecommerce', label: 'Online Stores', icon: ShoppingBag, badge: ecommerceOrders.length > 0 ? ecommerceOrders.length : undefined },
     { id: 'xero', label: 'Xero Sync', icon: FileText, badge: pendingInvoices > 0 ? pendingInvoices : undefined },
     { id: 'products', label: 'Products', icon: Tag },
+    { id: 'quotes', label: 'Quotes', icon: FileSignature },
     { id: 'bom', label: 'Recipes', icon: Layers },
     { id: 'movements', label: 'Audit Logs', icon: History },
   ];
