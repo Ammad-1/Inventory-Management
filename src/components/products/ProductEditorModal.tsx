@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { useInventory } from '../../context/InventoryContext';
 import { Product, ProductReference, ProductPricing, ProductVariant } from '../../types';
+import { requestQuoteForProduct } from '../../lib/quoteHandoff';
 
 interface Props {
   isOpen: boolean;
@@ -170,9 +171,9 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
       if (!r.ok) return setError(d.error || 'Could not save the product.');
       onSaved();
       onClose();
-      if (thenQuote) {
-        // The design offers this straight from the product page
-        window.dispatchEvent(new CustomEvent('printberry:create-quote'));
+      if (thenQuote && d.id) {
+        // Saved first, so the quote is built against a product that exists
+        requestQuoteForProduct(d.id);
       }
     } catch (e: any) {
       setError(e.message || 'Could not save the product.');
@@ -473,7 +474,7 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
               </div>
               <button onClick={addPricingRow}
                 className="shrink-0 px-2.5 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 flex items-center gap-1">
-                <Plus className="w-3.5 h-3.5" /> Add Pricing
+                <Plus className="w-3.5 h-3.5" /> Add pricing
               </button>
             </div>
 
@@ -572,16 +573,16 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
         <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200 bg-white rounded-b-2xl sticky bottom-0">
           <button onClick={onClose}
             className="px-4 py-2 rounded-md border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50">
-            Back to List
+            Back to list
           </button>
           <button onClick={() => save(false)} disabled={saving}
             className="px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2">
             {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            {product ? 'Save Product' : 'Create Product'}
+            {product ? 'Save product' : 'Create product'}
           </button>
           <button onClick={() => save(true)} disabled={saving}
             className="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
-            Create Quote
+            Create quote
           </button>
         </div>
       </div>

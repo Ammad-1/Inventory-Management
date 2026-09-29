@@ -20,15 +20,17 @@ import { ImportInventoryModal } from './components/modals/ImportInventoryModal';
 import { NewShipmentModal } from './components/modals/NewShipmentModal';
 import { BuildXeroInvoiceModal } from './components/modals/BuildXeroInvoiceModal';
 import { InventoryItem } from './types';
+import { QUOTE_HANDOFF_EVENT } from './lib/quoteHandoff';
 
 const MainAppContent: React.FC = () => {
   const { activeView, setActiveView } = useInventory();
 
-  // The product page offers "Create Quote" straight after saving
+  // "Create Quote" on the product page lands on the quote builder; the
+  // Quotes view picks the product up from the handoff once it mounts.
   React.useEffect(() => {
     const go = () => setActiveView('quotes');
-    window.addEventListener('printberry:create-quote', go);
-    return () => window.removeEventListener('printberry:create-quote', go);
+    window.addEventListener(QUOTE_HANDOFF_EVENT, go);
+    return () => window.removeEventListener(QUOTE_HANDOFF_EVENT, go);
   }, [setActiveView]);
 
   // Modal states

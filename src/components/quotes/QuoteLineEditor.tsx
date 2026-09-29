@@ -7,6 +7,8 @@ interface Props {
   products: Product[];
   /** Null when adding a new line. */
   line: QuoteLine | null;
+  /** Preselects a product when the line was started from the product page. */
+  initialProductId?: string;
   onClose: () => void;
   onSave: (line: QuoteLine) => void;
 }
@@ -17,8 +19,8 @@ interface Props {
  * cost: a later change to the blank's landed cost must not move a quote
  * that has already gone to a customer.
  */
-export const QuoteLineEditor: React.FC<Props> = ({ products, line, onClose, onSave }) => {
-  const [productId, setProductId] = useState(line?.productId || '');
+export const QuoteLineEditor: React.FC<Props> = ({ products, line, initialProductId, onClose, onSave }) => {
+  const [productId, setProductId] = useState(line?.productId || initialProductId || '');
   const [quantity, setQuantity] = useState(line?.quantity || 100);
   const [description, setDescription] = useState(line?.description || '');
   /** Keyed `${decorationTypeId}|${printAreaId}` so a pick is unambiguous. */

@@ -12,6 +12,8 @@ interface Props {
   quote: Quote | null;
   reference: QuoteReference | null;
   products: Product[];
+  /** Set when the builder was opened by "Create quote" on a product. */
+  startProductId?: string | null;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -32,7 +34,9 @@ const F = 'w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm focus
 const L = 'block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1';
 const CARD = 'rounded-xl border border-slate-200 bg-white p-3.5';
 
-export const QuoteBuilder: React.FC<Props> = ({ onClose, onSaved, quote, reference, products }) => {
+export const QuoteBuilder: React.FC<Props> = ({
+  onClose, onSaved, quote, reference, products, startProductId
+}) => {
   const [draft, setDraft] = useState(emptyDraft());
   const [lines, setLines] = useState<QuoteLine[]>([]);
   const [editingLine, setEditingLine] = useState<number | null>(null);
@@ -43,6 +47,12 @@ export const QuoteBuilder: React.FC<Props> = ({ onClose, onSaved, quote, referen
   useEffect(() => {
     if (error) errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [error]);
+
+  // Arriving from a product means the first thing to do is price that
+  // product, so open the line editor on it rather than an empty quote.
+  useEffect(() => {
+    if (startProductId) setEditingLine(-1);
+  }, [startProductId]);
 
   useEffect(() => {
     if (!quote) return;
@@ -466,6 +476,7 @@ export const QuoteBuilder: React.FC<Props> = ({ onClose, onSaved, quote, referen
         <QuoteLineEditor
           products={products}
           line={editingLine >= 0 ? lines[editingLine] : null}
+          initialProductId={editingLine === -1 && lines.length === 0 ? startProductId || undefined : undefined}
           onClose={() => setEditingLine(null)}
           onSave={line => {
             setLines(prev => editingLine >= 0

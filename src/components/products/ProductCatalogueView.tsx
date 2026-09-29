@@ -88,7 +88,7 @@ export const ProductCatalogueView: React.FC = () => {
         </p>
         <button onClick={openNew}
           className="px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 flex items-center gap-1.5 shadow-sm">
-          <Plus className="w-4 h-4" /> New product
+          <Plus className="w-4 h-4" /> Create product
         </button>
       </div>
 
@@ -144,7 +144,7 @@ export const ProductCatalogueView: React.FC = () => {
           </p>
           <button onClick={openNew}
             className="mt-4 px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 inline-flex items-center gap-1.5">
-            <Plus className="w-4 h-4" /> Add the first product
+            <Plus className="w-4 h-4" /> Create the first product
           </button>
         </div>
       ) : filtered.length === 0 ? (

@@ -7,6 +7,7 @@ import { Product, Quote, QuoteReference, QuoteStatus } from '../../types';
 import { QuoteBuilder } from './QuoteBuilder';
 import { InvoiceQuoteModal } from './InvoiceQuoteModal';
 import { CompanyDetailsModal } from './CompanyDetailsModal';
+import { takePendingQuoteProduct } from '../../lib/quoteHandoff';
 
 const STATUS_STYLES: Record<QuoteStatus, string> = {
   draft: 'bg-slate-100 text-slate-600 border-slate-200',
@@ -39,6 +40,7 @@ export const QuotesView: React.FC = () => {
   const [editing, setEditing] = useState<Quote | null>(null);
   const [invoicing, setInvoicing] = useState<Quote | null>(null);
   const [companyOpen, setCompanyOpen] = useState(false);
+  const [startProductId, setStartProductId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -60,6 +62,15 @@ export const QuotesView: React.FC = () => {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Opened by "Create quote" on the product page: start a quote for it
+  useEffect(() => {
+    const pending = takePendingQuoteProduct();
+    if (!pending) return;
+    setStartProductId(pending);
+    setEditing(null);
+    setBuilderOpen(true);
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -350,7 +361,8 @@ export const QuotesView: React.FC = () => {
           quote={editing}
           reference={reference}
           products={products}
-          onClose={() => setBuilderOpen(false)}
+          startProductId={startProductId}
+          onClose={() => { setBuilderOpen(false); setStartProductId(null); }}
           onSaved={load}
         />
       )}
