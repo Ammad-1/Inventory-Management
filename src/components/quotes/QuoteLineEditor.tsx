@@ -28,6 +28,14 @@ export const QuoteLineEditor: React.FC<Props> = ({ products, line, initialProduc
     new Set((line?.decorations || []).map(d => `${d.decorationTypeId}|${d.printAreaId}`))
   );
   const [error, setError] = useState<string | null>(null);
+  /** Screen-printed colours, keyed the same way as the picks. */
+  const [colourCounts, setColourCounts] = useState<Record<string, number>>(() => {
+    const seed: Record<string, number> = {};
+    for (const d of line?.decorations || []) {
+      seed[`${d.decorationTypeId}|${d.printAreaId}`] = d.colours || 1;
+    }
+    return seed;
+  });
 
   const product = products.find(p => p.id === productId) || null;
 
@@ -41,19 +49,30 @@ export const QuoteLineEditor: React.FC<Props> = ({ products, line, initialProduc
     }
   }, [productId, product, line?.productId]);
 
+  /** A decoration whose price moves with the number of colours. */
+  const pricesByColour = (p: { perColourSetup?: number; perColourUnit?: number }) =>
+    (p.perColourSetup || 0) > 0 || (p.perColourUnit || 0) > 0;
+
   const decorations: QuoteLineDecoration[] = useMemo(() => {
     if (!product) return [];
     return product.pricing
       .filter(p => picked.has(`${p.decorationTypeId}|${p.printAreaId}`))
-      .map(p => ({
-        decorationTypeId: p.decorationTypeId,
-        decorationName: p.decorationType || 'Decoration',
-        printAreaId: p.printAreaId,
-        printAreaName: p.printArea || 'Print area',
-        setupCost: p.setupCost,
-        unitCost: p.unitCost
-      }));
-  }, [product, picked]);
+      .map(p => {
+        const key = `${p.decorationTypeId}|${p.printAreaId}`;
+        const colours = pricesByColour(p) ? Math.max(1, colourCounts[key] || 1) : 1;
+        const extra = colours - 1;
+        return {
+          decorationTypeId: p.decorationTypeId,
+          decorationName: p.decorationType || 'Decoration',
+          printAreaId: p.printAreaId,
+          printAreaName: p.printArea || 'Print area',
+          // The uplift is folded in here, so the quote stores what it charges
+          setupCost: p.setupCost + extra * (p.perColourSetup || 0),
+          unitCost: p.unitCost + extra * (p.perColourUnit || 0),
+          colours
+        };
+      });
+  }, [product, picked, colourCounts]);
 
   /** The strictest minimum among the chosen decorations governs the line. */
   const minCharge = useMemo(() => {
@@ -207,11 +226,38 @@ export const QuoteLineEditor: React.FC<Props> = ({ products, line, initialProduc
                                 {p.decorationType}
                                 <span className="block text-[10px] font-medium opacity-70 tabular-nums">
                                   {money(p.unitCost)}/unit{p.setupCost > 0 ? ` + ${money(p.setupCost)} setup` : ''}
+                                  {pricesByColour(p) ? ' · per colour' : ''}
                                 </span>
                               </button>
                             );
                           })}
                         </div>
+
+                        {area.rows
+                          .filter(p => picked.has(`${p.decorationTypeId}|${p.printAreaId}`) && pricesByColour(p))
+                          .map(p => {
+                            const key = `${p.decorationTypeId}|${p.printAreaId}`;
+                            const colours = Math.max(1, colourCounts[key] || 1);
+                            return (
+                              <div key={key} className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100">
+                                <span className="text-[11px] font-semibold text-slate-600">
+                                  {p.decorationType} colours
+                                </span>
+                                <input type="number" min="1" max="12"
+                                  className="w-16 px-2 py-1 rounded border border-slate-300 text-sm text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500/25"
+                                  value={colours}
+                                  onChange={e => setColourCounts(c => ({
+                                    ...c, [key]: Math.max(1, Math.min(12, Number(e.target.value) || 1))
+                                  }))} />
+                                <span className="text-[10.5px] text-slate-500">
+                                  each extra colour adds{' '}
+                                  {(p.perColourSetup || 0) > 0 && `${money(p.perColourSetup || 0)} setup`}
+                                  {(p.perColourSetup || 0) > 0 && (p.perColourUnit || 0) > 0 && ' and '}
+                                  {(p.perColourUnit || 0) > 0 && `${money(p.perColourUnit || 0)}/unit`}
+                                </span>
+                              </div>
+                            );
+                          })}
                       </div>
                     ))}
                   </div>

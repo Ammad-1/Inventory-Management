@@ -248,11 +248,14 @@ export function buildQuotePdf(quoteId: string, company: CompanyDetails): PDFKit.
     const unitPrice = costed.quantity ? sellTotal / costed.quantity : sellTotal;
 
     const decs = db.prepare(
-      'SELECT decoration_name, print_area_name FROM quote_line_decorations WHERE quote_line_id = ?'
+      'SELECT decoration_name, print_area_name, colours FROM quote_line_decorations WHERE quote_line_id = ?'
     ).all(l.id) as any[];
 
     const areas = [...new Set(decs.map(d => d.print_area_name))];
-    const types = [...new Set(decs.map(d => d.decoration_name))];
+    // A two-colour print costs more than a one-colour one, so say so
+    const types = [...new Set(decs.map(d =>
+      (d.colours || 1) > 1 ? `${d.decoration_name} (${d.colours} colour)` : d.decoration_name
+    ))];
 
     const bulletText = (items: string[]) =>
       items.length ? items.map(t => `•  ${t}`).join('\n') : '—';

@@ -157,7 +157,7 @@ const hydrate = (q: any) => {
     decorations: db.prepare(`
       SELECT id, decoration_type_id as decorationTypeId, decoration_name as decorationName,
              print_area_id as printAreaId, print_area_name as printAreaName,
-             setup_cost as setupCost, unit_cost as unitCost
+             setup_cost as setupCost, unit_cost as unitCost, colours
       FROM quote_line_decorations WHERE quote_line_id = ?
     `).all(l.id)
   }));
@@ -379,8 +379,8 @@ quotesRouter.put('/', (req: Request, res: Response) => {
       const insDec = db.prepare(`
         INSERT INTO quote_line_decorations (
           id, quote_line_id, decoration_type_id, decoration_name,
-          print_area_id, print_area_name, setup_cost, unit_cost
-        ) VALUES (?,?,?,?,?,?,?,?)
+          print_area_id, print_area_name, setup_cost, unit_cost, colours
+        ) VALUES (?,?,?,?,?,?,?,?,?)
       `);
 
       b.lines.forEach((l: any, i: number) => {
@@ -401,7 +401,8 @@ quotesRouter.put('/', (req: Request, res: Response) => {
             uid('qd'), lineId,
             d.decorationTypeId || null, d.decorationName || 'Decoration',
             d.printAreaId || null, d.printAreaName || 'Print area',
-            Number(d.setupCost) || 0, Number(d.unitCost) || 0
+            Number(d.setupCost) || 0, Number(d.unitCost) || 0,
+            Math.max(1, Math.floor(Number(d.colours) || 1))
           );
         }
       });

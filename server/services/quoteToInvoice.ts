@@ -72,11 +72,14 @@ export function buildInvoiceLines(quote: any, quoteLines: any[]): ConversionResu
     const unitAmount = round4(sellTotal / quantity);
 
     const decorations = db.prepare(`
-      SELECT decoration_name, print_area_name FROM quote_line_decorations WHERE quote_line_id = ?
+      SELECT decoration_name, print_area_name, colours
+      FROM quote_line_decorations WHERE quote_line_id = ?
     `).all(l.id) as any[];
 
     const decoText = decorations.length
-      ? decorations.map(d => `${d.decoration_name} (${d.print_area_name})`).join(', ')
+      ? decorations.map(d =>
+          `${d.decoration_name}${(d.colours || 1) > 1 ? ` ${d.colours}-colour` : ''} (${d.print_area_name})`
+        ).join(', ')
       : 'No decoration';
 
     const parts = [l.product_name];

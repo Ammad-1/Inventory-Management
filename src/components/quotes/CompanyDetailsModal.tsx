@@ -13,7 +13,7 @@ interface Props {
 export const CompanyDetailsModal: React.FC<Props> = ({ onClose, onSaved }) => {
   const [form, setForm] = useState({
     name: '', addressLines: '', email: '', phone: '',
-    website: '', vatNumber: '', registrationNumber: ''
+    website: '', vatNumber: '', registrationNumber: '', quoteTerms: ''
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -114,6 +114,15 @@ export const CompanyDetailsModal: React.FC<Props> = ({ onClose, onSaved }) => {
                 <label className={L}>VAT number</label>
                 <input className={F} value={form.vatNumber} placeholder="GB…"
                   onChange={e => setForm({ ...form, vatNumber: e.target.value })} />
+              </div>
+              <div className="col-span-2">
+                <label className={L}>Quote terms &amp; conditions</label>
+                <textarea className={`${F} h-[86px] resize-none`} value={form.quoteTerms}
+                  placeholder={'One per line, for example:\nPrices are based on the quantities and specifications provided.\nLead times will be confirmed upon order confirmation.'}
+                  onChange={e => setForm({ ...form, quoteTerms: e.target.value })} />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Printed at the bottom of every quote. Leave empty to use the standard three.
+                </p>
               </div>
             </div>
           )}

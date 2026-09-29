@@ -537,6 +537,13 @@ export function initDatabase() {
       setup_cost REAL NOT NULL DEFAULT 0,
       unit_cost REAL NOT NULL DEFAULT 0,
       min_charge REAL NOT NULL DEFAULT 0,
+      -- Screen printing costs a screen per colour, and often a pass per
+      -- colour on the run too. These are what EACH COLOUR BEYOND THE FIRST
+      -- adds, so a one-colour job is priced by setup_cost and unit_cost
+      -- alone and nothing changes for decorations where colour count is
+      -- irrelevant.
+      per_colour_setup REAL NOT NULL DEFAULT 0,
+      per_colour_unit REAL NOT NULL DEFAULT 0,
       notes TEXT,
       active INTEGER NOT NULL DEFAULT 1,
       updated_at TEXT NOT NULL,
@@ -732,11 +739,26 @@ export function initDatabase() {
       decoration_name TEXT NOT NULL,
       print_area_id TEXT,
       print_area_name TEXT NOT NULL,
+      -- Already includes the uplift for the colour count below
       setup_cost REAL NOT NULL DEFAULT 0,
       unit_cost REAL NOT NULL DEFAULT 0,
+      colours INTEGER NOT NULL DEFAULT 1,
       FOREIGN KEY (quote_line_id) REFERENCES quote_lines(id) ON DELETE CASCADE
     );
   `);
+
+  for (const col of ['per_colour_setup', 'per_colour_unit']) {
+    try {
+      db.exec(`ALTER TABLE product_pricing ADD COLUMN ${col} REAL NOT NULL DEFAULT 0;`);
+    } catch {
+      /* already there */
+    }
+  }
+  try {
+    db.exec('ALTER TABLE quote_line_decorations ADD COLUMN colours INTEGER NOT NULL DEFAULT 1;');
+  } catch {
+    /* already there */
+  }
 
   db.exec('CREATE INDEX IF NOT EXISTS idx_quote_lines_quote ON quote_lines(quote_id);');
   db.exec('CREATE INDEX IF NOT EXISTS idx_quote_decs_line ON quote_line_decorations(quote_line_id);');

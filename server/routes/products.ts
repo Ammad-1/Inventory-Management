@@ -112,7 +112,9 @@ const hydrate = (row: any) => {
     SELECT pr.id, pr.decoration_type_id as decorationTypeId, d.name as decorationType,
            pr.print_area_id as printAreaId, a.name as printArea,
            pr.setup_cost as setupCost, pr.unit_cost as unitCost,
-           pr.min_charge as minCharge, pr.notes, pr.active
+           pr.min_charge as minCharge,
+           pr.per_colour_setup as perColourSetup, pr.per_colour_unit as perColourUnit,
+           pr.notes, pr.active
     FROM product_pricing pr
     JOIN decoration_types d ON d.id = pr.decoration_type_id
     JOIN print_areas a ON a.id = pr.print_area_id
@@ -247,7 +249,10 @@ productsRouter.put('/', (req: Request, res: Response) => {
     }
 
     for (const [i, p] of (pricing as any[]).entries()) {
-      for (const [field, label] of [['setupCost', 'setup cost'], ['unitCost', 'unit cost'], ['minCharge', 'minimum charge']]) {
+      for (const [field, label] of [
+        ['setupCost', 'setup cost'], ['unitCost', 'unit cost'], ['minCharge', 'minimum charge'],
+        ['perColourSetup', 'per-colour setup'], ['perColourUnit', 'per-colour unit cost']
+      ]) {
         const v = Number(p[field] ?? 0);
         if (!Number.isFinite(v) || v < 0) {
           return res.status(400).json({ error: `Pricing row ${i + 1}: ${label} must be zero or more` });
@@ -293,14 +298,18 @@ productsRouter.put('/', (req: Request, res: Response) => {
 
       db.prepare('DELETE FROM product_pricing WHERE product_id = ?').run(productId);
       const insPrice = db.prepare(`
-        INSERT INTO product_pricing (id, product_id, decoration_type_id, print_area_id, setup_cost, unit_cost, min_charge, notes, active, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO product_pricing (
+          id, product_id, decoration_type_id, print_area_id,
+          setup_cost, unit_cost, min_charge, per_colour_setup, per_colour_unit,
+          notes, active, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const p of pricing) {
         insPrice.run(
           `pp-${crypto.randomUUID().slice(0, 8)}`, productId,
           p.decorationTypeId, p.printAreaId,
           Number(p.setupCost) || 0, Number(p.unitCost) || 0, Number(p.minCharge) || 0,
+          Number(p.perColourSetup) || 0, Number(p.perColourUnit) || 0,
           p.notes || null, p.active === false ? 0 : 1, now
         );
       }

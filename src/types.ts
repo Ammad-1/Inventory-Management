@@ -428,6 +428,9 @@ export interface ProductPricing {
   setupCost: number;
   unitCost: number;
   minCharge: number;
+  /** What each colour beyond the first adds. Zero where colour count is irrelevant. */
+  perColourSetup?: number;
+  perColourUnit?: number;
   notes?: string | null;
   active?: number;
 }
@@ -488,10 +491,12 @@ export interface QuoteLineDecoration {
   decorationName: string;
   printAreaId?: string | null;
   printAreaName: string;
-  /** Charged once for the line. */
+  /** Charged once for the line, colour uplift already included. */
   setupCost: number;
-  /** Charged per unit. */
+  /** Charged per unit, colour uplift already included. */
   unitCost: number;
+  /** Screen-printed colours. 1 unless the decoration prices by colour. */
+  colours?: number;
 }
 
 export interface QuoteLine {

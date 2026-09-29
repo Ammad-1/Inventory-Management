@@ -132,7 +132,8 @@ export const ProductEditorModal: React.FC<Props> = ({
     setPricing([...pricing, {
       decorationTypeId: decorations[0]?.id || '',
       printAreaId: selectedAreas[0].id,
-      setupCost: 0, unitCost: 0, minCharge: 0, notes: '', active: 1
+      setupCost: 0, unitCost: 0, minCharge: 0,
+      perColourSetup: 0, perColourUnit: 0, notes: '', active: 1
     }]);
   };
 
@@ -503,6 +504,7 @@ export const ProductEditorModal: React.FC<Props> = ({
                 <h3 className="text-[15px] font-bold text-slate-900">Pricing by Decoration Type and Print Area</h3>
                 <p className="text-[12px] text-slate-500 italic">
                   Enter setup and unit costs for each combination of decoration type and print area.
+                  Fill the per-colour columns for screen print, where every colour is another screen.
                 </p>
               </div>
               <button onClick={addPricingRow}
@@ -520,6 +522,8 @@ export const ProductEditorModal: React.FC<Props> = ({
                     <th className="text-center font-bold px-2 py-2 border-b border-r border-slate-300 w-28">Setup Cost</th>
                     <th className="text-center font-bold px-2 py-2 border-b border-r border-slate-300 w-28">Unit Cost</th>
                     <th className="text-center font-bold px-2 py-2 border-b border-r border-slate-300 w-28">Min. Charge</th>
+                    <th className="text-center font-bold px-2 py-2 border-b border-r border-slate-300 w-28" title="What each colour beyond the first adds to setup">+ / Colour setup</th>
+                    <th className="text-center font-bold px-2 py-2 border-b border-r border-slate-300 w-28" title="What each colour beyond the first adds per unit">+ / Colour unit</th>
                     <th className="text-center font-bold px-2 py-2 border-b border-r border-slate-300">Notes</th>
                     <th className="text-center font-bold px-2 py-2 border-b border-r border-slate-300 w-16">Active</th>
                     <th className="text-center font-bold px-2 py-2 border-b border-slate-300 w-14">Actions</th>
@@ -527,7 +531,7 @@ export const ProductEditorModal: React.FC<Props> = ({
                 </thead>
                 <tbody>
                   {pricing.length === 0 && (
-                    <tr><td colSpan={8} className="text-center text-[13px] text-slate-500 py-4">
+                    <tr><td colSpan={10} className="text-center text-[13px] text-slate-500 py-4">
                       No pricing yet. Select print areas above, then add a row.
                     </td></tr>
                   )}
@@ -545,7 +549,7 @@ export const ProductEditorModal: React.FC<Props> = ({
                           {selectedAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                         </select>
                       </td>
-                      {(['setupCost', 'unitCost', 'minCharge'] as const).map(f => (
+                      {(['setupCost', 'unitCost', 'minCharge', 'perColourSetup', 'perColourUnit'] as const).map(f => (
                         <td key={f} className="px-2 py-1.5 border-r border-slate-200">
                           <div className="flex items-center">
                             <span className="text-[12px] text-slate-500 px-1.5 py-1.5 bg-slate-100 rounded-l-md border border-r-0 border-slate-300">£</span>
