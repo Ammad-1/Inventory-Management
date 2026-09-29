@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Loader2, AlertTriangle, Plus, UserX, ShieldCheck, Trash2 } from 'lucide-react';
 import { Role, useAuth } from '../../context/AuthContext';
 
@@ -101,7 +102,13 @@ export const UsersModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     }
   };
 
-  return (
+  /*
+   * Rendered into document.body rather than where it is called from.
+   * The navbar carries backdrop-blur, and a backdrop-filter makes that
+   * element the containing block for any fixed-position descendant, which
+   * squeezed this modal into the 64px-tall header instead of the viewport.
+   */
+  return createPortal(
     <div className="fixed inset-0 z-[70] bg-slate-900/50 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl my-8">
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
@@ -242,6 +249,7 @@ export const UsersModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </p>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

@@ -26,6 +26,26 @@ export const Navbar: React.FC = () => {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [usersOpen, setUsersOpen] = React.useState(false);
 
+  /*
+   * Close on an outside click via the document rather than a full-screen
+   * overlay: the navbar has backdrop-blur, which confines a fixed-position
+   * child to the header, so such an overlay would only cover the header.
+   */
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [menuOpen]);
+
   const ROLE_LABEL: Record<string, string> = {
     owner: 'Owner', sales: 'Sales', production: 'Production'
   };
@@ -96,7 +116,7 @@ export const Navbar: React.FC = () => {
 
           {/* Right Profile & Actions */}
           <div className="flex items-center space-x-3 shrink-0">
-            <div className="relative">
+            <div className="relative" ref={menuRef}>
               <button onClick={() => setMenuOpen(o => !o)}
                 className="flex items-center space-x-2.5 p-1.5 pl-2.5 rounded-xl hover:bg-slate-50 transition-all border border-slate-200/60 shadow-xs">
                 <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center font-bold text-xs shadow-xs">
@@ -112,9 +132,7 @@ export const Navbar: React.FC = () => {
               </button>
 
               {menuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                  <div className="absolute right-0 mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-lg z-50 overflow-hidden">
+                <div className="absolute right-0 mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-lg z-50 overflow-hidden">
                     <div className="px-3 py-2.5 border-b border-slate-100">
                       <div className="text-xs font-bold text-slate-800">{user?.name}</div>
                       <div className="text-[11px] text-slate-500 truncate">{user?.email}</div>
@@ -133,8 +151,7 @@ export const Navbar: React.FC = () => {
                       className="w-full text-left px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2">
                       <LogOut className="w-3.5 h-3.5 text-slate-400" /> Sign out
                     </button>
-                  </div>
-                </>
+                </div>
               )}
             </div>
           </div>
