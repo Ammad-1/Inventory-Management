@@ -734,5 +734,77 @@ quotesRouter.get('/:id/pdf', (req: Request, res: Response) => {
   }
 });
 
+
+/**
+ * Release a quote from an invoice that no longer exists in Xero.
+ *
+ * Invoicing stamps a quote so it can never be billed twice, but a test
+ * invoice that gets deleted in Xero would otherwise leave the quote
+ * permanently stuck: not editable, not deletable, pointing at nothing.
+ *
+ * Xero is asked first. A live invoice is never detached silently -- only
+ * one Xero reports as DELETED or VOIDED, or has stopped existing.
+ */
+quotesRouter.post('/:id/unlink-invoice', async (req: Request, res: Response) => {
+  try {
+    const quote = db.prepare('SELECT * FROM quotes WHERE id = ?').get(req.params.id) as any;
+    if (!quote) return res.status(404).json({ error: 'Quote not found' });
+    if (!quote.xero_invoice_id) {
+      return res.status(400).json({ error: `${quote.quote_number} is not linked to an invoice.` });
+    }
+
+    const auth = await getValidAccessToken();
+    if (!auth) {
+      return res.status(401).json({
+        error: 'Xero is not connected, so the invoice cannot be checked. Connect Xero and try again.'
+      });
+    }
+
+    let liveStatus: string;
+    const check = await xeroFetch(auth, `/Invoices/${quote.xero_invoice_id}`);
+    if (check.status === 404) {
+      liveStatus = 'GONE';
+    } else if (check.ok) {
+      const found = (JSON.parse(await check.text()).Invoices || [])[0];
+      liveStatus = String(found?.Status || 'UNKNOWN');
+    } else {
+      const body = await check.text();
+      return res.status(502).json({
+        error: `Could not check that invoice with Xero: ${describeXeroError(body)}`
+      });
+    }
+
+    const releasable = ['DELETED', 'VOIDED', 'GONE'];
+    if (!releasable.includes(liveStatus)) {
+      return res.status(409).json({
+        error:
+          `${quote.xero_invoice_number} still exists in Xero as ${liveStatus}. ` +
+          'Delete or void it there first, then unlink.',
+        liveStatus
+      });
+    }
+
+    db.prepare(`
+      UPDATE quotes SET xero_invoice_id = NULL, xero_invoice_number = NULL, updated_at = ?
+      WHERE id = ?
+    `).run(now(), quote.id);
+
+    // The local mirror is only ours to clear; Xero has already lost it
+    db.prepare('DELETE FROM xero_invoices WHERE invoice_number = ?').run(quote.xero_invoice_number);
+
+    res.json({
+      success: true,
+      liveStatus,
+      message:
+        `${quote.quote_number} released from ${quote.xero_invoice_number} ` +
+        `(${liveStatus === 'GONE' ? 'no longer in Xero' : `${liveStatus} in Xero`}). ` +
+        'It can be edited, deleted or invoiced again.'
+    });
+  } catch (err: any) {
+    console.error('[Quote Unlink Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
   return quotesRouter;
 }

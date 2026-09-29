@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus, Search, Loader2, AlertTriangle, FileText, Trash2, Send, Check, XCircle, Receipt,
-  FileDown, Building2
+  FileDown, Building2, Unlink
 } from 'lucide-react';
 import { Product, Quote, QuoteReference, QuoteStatus } from '../../types';
 import { QuoteBuilder } from './QuoteBuilder';
@@ -110,6 +110,31 @@ export const QuotesView: React.FC = () => {
       await load();
     } catch (e: any) {
       setError(e.message || 'Could not update that quote.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /**
+   * Release a quote whose Xero invoice has been deleted. The server checks
+   * with Xero first, so a live invoice cannot be detached by mistake.
+   */
+  const unlink = async (q: Quote) => {
+    if (!window.confirm(
+      `Release ${q.quoteNumber} from invoice ${q.xeroInvoiceNumber}?\n\n` +
+      'Only works if that invoice has been deleted or voided in Xero. ' +
+      'The quote then becomes editable and deletable again.'
+    )) return;
+
+    setBusyId(q.id);
+    setError(null);
+    try {
+      const r = await fetch(`/api/quotes/${q.id}/unlink-invoice`, { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      await load();
+    } catch (e: any) {
+      setError(e.message || 'Could not release that quote.');
     } finally {
       setBusyId(null);
     }
@@ -325,6 +350,13 @@ export const QuotesView: React.FC = () => {
                                   <XCircle className="w-3.5 h-3.5" />
                                 </button>
                               </>
+                            )}
+                            {q.xeroInvoiceId && (
+                              <button onClick={() => unlink(q)}
+                                title={`Release from ${q.xeroInvoiceNumber} if that invoice was deleted in Xero`}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50">
+                                <Unlink className="w-3.5 h-3.5" />
+                              </button>
                             )}
                             {!q.xeroInvoiceId && (
                               <button onClick={() => remove(q)} title="Delete quote"
