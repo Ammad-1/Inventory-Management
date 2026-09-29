@@ -767,6 +767,80 @@ export function initDatabase() {
     VALUES ('primary', 'PrintBerry Ltd', ?)
   `).run(new Date().toISOString());
 
+  /* ------------------------------------------------------------------
+   * Pick-lists for the product form.
+   *
+   * Colour, size, type and supplier were free text, so the same thing got
+   * typed three ways and nothing could be filtered on it. One table holds
+   * them all: sizes and types differ per category, colours and suppliers
+   * do not, so category_id is null where the value is shared.
+   * ---------------------------------------------------------------- */
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS product_options (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK(kind IN ('colour','size','type','supplier','brand','quality')),
+      value TEXT NOT NULL,
+      category_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(kind, value, category_id),
+      FOREIGN KEY (category_id) REFERENCES product_categories(id)
+    );
+  `);
+
+  if ((db.prepare('SELECT COUNT(*) as c FROM product_options').get() as any).c === 0) {
+    const ins = db.prepare(
+      'INSERT OR IGNORE INTO product_options (id, kind, value, category_id, sort_order) VALUES (?, ?, ?, ?, ?)'
+    );
+    let n = 0;
+    const add = (kind: string, value: string, categoryId: string | null) =>
+      ins.run(`opt-${++n}`, kind, value, categoryId, n);
+
+    // Shared across every category
+    ['White', 'Black', 'Natural', 'Navy', 'Red', 'Grey', 'Green', 'Blue', 'Pink', 'Purple', 'Yellow']
+      .forEach(v => add('colour', v, null));
+
+    // Sizes and types only make sense per category
+    const perCategory: Record<string, { size: string[]; type: string[] }> = {
+      'cat-mug': {
+        size: ['11oz', '15oz', '17oz'],
+        type: ['Standard Mug', 'Sublimation Mug', 'Enamel Mug', 'Travel Mug']
+      },
+      'cat-tshirt': {
+        size: ['XS', 'Small', 'Medium', 'Large', 'XL', '2XL', '3XL'],
+        type: ['Heavy Cotton', 'Softstyle', 'Performance', 'Organic Cotton']
+      },
+      'cat-hoodie': {
+        size: ['XS', 'Small', 'Medium', 'Large', 'XL', '2XL', '3XL'],
+        type: ['Pullover', 'Zip Through', 'Heavy Blend']
+      },
+      'cat-tote': {
+        size: ['Small', 'Medium', 'Large'],
+        type: ['Cotton', 'Heavyweight Canvas', 'Organic Cotton']
+      },
+      'cat-bottle': {
+        size: ['350ml', '500ml', '750ml', '1L'],
+        type: ['Aluminium', 'Stainless Steel', 'Tritan']
+      }
+    };
+    for (const [catId, sets] of Object.entries(perCategory)) {
+      sets.size.forEach(v => add('size', v, catId));
+      sets.type.forEach(v => add('type', v, catId));
+    }
+
+    ['PrintBerry', 'Ralawise', 'Gildan', 'Fruit of the Loom', 'Stanley/Stella', 'Orca']
+      .forEach(v => add('brand', v, null));
+
+    // Suppliers we already buy stock from, so the list starts real
+    for (const row of db.prepare(
+      "SELECT DISTINCT supplier_name v FROM inventory_items WHERE supplier_name IS NOT NULL AND supplier_name != ''"
+    ).all() as any[]) {
+      add('supplier', row.v, null);
+    }
+
+    console.log('[Database] Seeded product option lists');
+  }
+
   // 7. Stock movements (Immutable audit ledger)
   db.exec(`
     CREATE TABLE IF NOT EXISTS stock_movements (

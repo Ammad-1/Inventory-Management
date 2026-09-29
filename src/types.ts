@@ -402,9 +402,20 @@ export interface DecorationType {
   name: string;
 }
 
+export type ProductOptionKind = 'colour' | 'size' | 'type' | 'supplier' | 'brand' | 'quality';
+
+/** A pick-list value. categoryId null means it applies to every category. */
+export interface ProductOption {
+  id: string;
+  kind: ProductOptionKind;
+  value: string;
+  categoryId: string | null;
+}
+
 export interface ProductReference {
   categories: ProductCategory[];
   decorationTypes: DecorationType[];
+  options: ProductOption[];
 }
 
 /** One cell of the decoration x print-area pricing matrix. */

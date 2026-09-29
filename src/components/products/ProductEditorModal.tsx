@@ -5,6 +5,7 @@ import {
 import { useInventory } from '../../context/InventoryContext';
 import { Product, ProductReference, ProductPricing, ProductVariant } from '../../types';
 import { requestQuoteForProduct } from '../../lib/quoteHandoff';
+import { OptionSelect } from './OptionSelect';
 
 interface Props {
   isOpen: boolean;
@@ -13,6 +14,8 @@ interface Props {
   reference: ProductReference | null;
   /** Null when creating. */
   product: Product | null;
+  /** Re-fetches reference data after a pick-list value is added. */
+  onReferenceChanged: () => void;
 }
 
 const blankDraft = () => ({
@@ -27,7 +30,9 @@ const L = 'block text-[12px] font-bold text-slate-700 mb-1';
 const REQ = <span className="text-rose-500"> *</span>;
 const PANEL = 'rounded-lg border border-slate-300 bg-white';
 
-export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, reference, product }) => {
+export const ProductEditorModal: React.FC<Props> = ({
+  isOpen, onClose, onSaved, reference, product, onReferenceChanged
+}) => {
   const { inventory } = useInventory();
 
   const [draft, setDraft] = useState(blankDraft());
@@ -81,6 +86,15 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
     if (!category || category.decorationTypeIds.length === 0) return all;
     return all.filter(d => category.decorationTypeIds.includes(d.id));
   }, [reference, category]);
+
+  /**
+   * The layout has no name field: the name IS the product described. Built
+   * here the same way the server builds it, so what is shown is what saves.
+   */
+  const derivedName = useMemo(() => {
+    const bits = [category?.name, [draft.colour, draft.size].filter(Boolean).join(' ')].filter(Boolean);
+    return bits.join(' - ').trim();
+  }, [category, draft.colour, draft.size]);
 
   const blanks = useMemo(() => inventory.filter(i => i.category !== 'packaging'), [inventory]);
   const packaging = useMemo(() => inventory.filter(i => i.category === 'packaging'), [inventory]);
@@ -151,10 +165,21 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
     }
   };
 
+  /** Link a blank, and offer its SKU and supplier if the form is still empty. */
+  const pickBlank = (itemId: string) => {
+    const item = inventory.find(i => i.id === itemId);
+    setDraft(d => ({
+      ...d,
+      blankItemId: itemId,
+      sku: d.sku.trim() || (item?.sku ? `PRD-${item.sku}` : ''),
+      supplierName: d.supplierName || item?.supplierName || ''
+    }));
+  };
+
   const save = async (thenQuote: boolean) => {
     setError(null);
     if (!draft.sku.trim()) return setError('Product SKU is required.');
-    if (!draft.name.trim()) return setError('Product name is required.');
+    if (!draft.categoryId) return setError('Choose a category.');
 
     setSaving(true);
     try {
@@ -162,7 +187,7 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: product?.id, ...draft, printAreaIds,
+          id: product?.id, ...draft, name: draft.name.trim() || derivedName, printAreaIds,
           pricing: pricing.filter(p => p.decorationTypeId && p.printAreaId),
           variants: variants.filter(v => v.brand || v.quality || v.baseCost)
         })
@@ -217,21 +242,26 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
                   {reference?.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
-              <div>
-                <label className={L}>Colour{REQ}</label>
-                <input className={F} value={draft.colour} placeholder="White"
-                  onChange={e => setDraft({ ...draft, colour: e.target.value })} />
-              </div>
+              <OptionSelect
+                kind="colour" label={<>Colour{REQ}</>} value={draft.colour}
+                onChange={v => setDraft({ ...draft, colour: v })}
+                options={reference?.options || []} categoryId={draft.categoryId}
+                onAdded={onReferenceChanged}
+              />
               <div>
                 <label className={L}>Product SKU{REQ}</label>
                 <input className={F} value={draft.sku} placeholder="Enter product SKU…"
                   onChange={e => setDraft({ ...draft, sku: e.target.value })} />
+                <p className="text-[10.5px] text-slate-500 mt-1 leading-snug">
+                  What you sell, not what you stock. The blank it uses is linked below.
+                </p>
               </div>
-              <div>
-                <label className={L}>Supplier Name</label>
-                <input className={F} value={draft.supplierName} placeholder="e.g. Ralawise"
-                  onChange={e => setDraft({ ...draft, supplierName: e.target.value })} />
-              </div>
+              <OptionSelect
+                kind="supplier" label="Supplier Name" value={draft.supplierName}
+                onChange={v => setDraft({ ...draft, supplierName: v })}
+                options={reference?.options || []}
+                onAdded={onReferenceChanged}
+              />
               <div className="row-span-2">
                 <label className={L}>Description</label>
                 <textarea className={`${F} h-[94px] resize-none`} value={draft.description}
@@ -239,16 +269,18 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
                   onChange={e => setDraft({ ...draft, description: e.target.value })} />
               </div>
 
-              <div>
-                <label className={L}>Size{REQ}</label>
-                <input className={F} value={draft.size} placeholder="11oz"
-                  onChange={e => setDraft({ ...draft, size: e.target.value })} />
-              </div>
-              <div>
-                <label className={L}>Type{REQ}</label>
-                <input className={F} value={draft.type} placeholder="Standard Mug"
-                  onChange={e => setDraft({ ...draft, type: e.target.value })} />
-              </div>
+              <OptionSelect
+                kind="size" label={<>Size{REQ}</>} value={draft.size}
+                onChange={v => setDraft({ ...draft, size: v })}
+                options={reference?.options || []} categoryId={draft.categoryId}
+                requiresCategory onAdded={onReferenceChanged}
+              />
+              <OptionSelect
+                kind="type" label={<>Type{REQ}</>} value={draft.type}
+                onChange={v => setDraft({ ...draft, type: v })}
+                options={reference?.options || []} categoryId={draft.categoryId}
+                requiresCategory onAdded={onReferenceChanged}
+              />
               <div>
                 <label className={L}>Product Notes</label>
                 <input className={F} value={draft.notes} placeholder="Add product notes…"
@@ -355,13 +387,14 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
               <Package className="w-4 h-4 text-indigo-500" /> What this consumes from stock
             </h3>
             <p className="text-[12px] text-slate-500 italic mb-3">
-              Links the product to real landed cost, so a quote prices against stock rather than a guess.
+              The <strong>stock SKU</strong> is the physical blank you buy and count. The{' '}
+              <strong>product SKU</strong> above is what you sell — the same blank can be sold as
+              several products. Linking them prices a quote on real landed cost rather than a guess.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div>
-                <label className={L}>Blank</label>
-                <select className={F} value={draft.blankItemId}
-                  onChange={e => setDraft({ ...draft, blankItemId: e.target.value })}>
+                <label className={L}>Blank (stock SKU)</label>
+                <select className={F} value={draft.blankItemId} onChange={e => pickBlank(e.target.value)}>
                   <option value="">Not linked</option>
                   {blanks.map(i => <option key={i.id} value={i.id}>{i.sku} — {i.name}</option>)}
                 </select>
@@ -570,7 +603,14 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
         </div>
 
         {/* -------------------------------------------------------- footer */}
-        <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200 bg-white rounded-b-2xl sticky bottom-0">
+        <div className="flex items-center justify-between gap-3 px-6 py-3 border-t border-slate-200 bg-white rounded-b-2xl sticky bottom-0">
+          <div className="text-[12px] min-w-0">
+            <span className="text-slate-500">Saves as </span>
+            <span className="font-bold text-slate-900">
+              {draft.name.trim() || derivedName || draft.sku.trim().toUpperCase() || '—'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
           <button onClick={onClose}
             className="px-4 py-2 rounded-md border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50">
             Back to list
@@ -584,6 +624,7 @@ export const ProductEditorModal: React.FC<Props> = ({ isOpen, onClose, onSaved, 
             className="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
             Create quote
           </button>
+          </div>
         </div>
       </div>
     </div>

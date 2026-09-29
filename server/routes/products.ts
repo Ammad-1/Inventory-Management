@@ -36,8 +36,62 @@ productsRouter.get('/reference', (_req: Request, res: Response) => {
         // The decorations this category actually offers; empty means all of them
         decorationTypeIds: links.filter(l => l.categoryId === c.id).map(l => l.decorationTypeId)
       })),
-      decorationTypes
+      decorationTypes,
+      options: db.prepare(`
+        SELECT id, kind, value, category_id as categoryId
+        FROM product_options ORDER BY kind, sort_order, value
+      `).all()
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ----------------------------------------------------------------- options */
+
+const OPTION_KINDS = ['colour', 'size', 'type', 'supplier', 'brand', 'quality'];
+
+/** Add a value to a pick-list, so the form never forces free text. */
+productsRouter.post('/options', (req: Request, res: Response) => {
+  try {
+    const { kind, value, categoryId } = req.body || {};
+    if (!OPTION_KINDS.includes(kind)) {
+      return res.status(400).json({ error: `kind must be one of: ${OPTION_KINDS.join(', ')}` });
+    }
+    const v = String(value || '').trim();
+    if (!v) return res.status(400).json({ error: 'A value is required' });
+    if (v.length > 60) return res.status(400).json({ error: 'That value is too long' });
+    if (categoryId && !db.prepare('SELECT 1 FROM product_categories WHERE id = ?').get(categoryId)) {
+      return res.status(400).json({ error: 'Unknown category' });
+    }
+
+    const existing = db.prepare(
+      'SELECT id FROM product_options WHERE kind = ? AND lower(value) = lower(?) AND (category_id IS ? OR category_id = ?)'
+    ).get(kind, v, categoryId || null, categoryId || null) as any;
+    if (existing) {
+      return res.json({ success: true, id: existing.id, value: v, message: `${v} is already on the list` });
+    }
+
+    const next = (db.prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 as n FROM product_options').get() as any).n;
+    const id = `opt-${crypto.randomUUID().slice(0, 8)}`;
+    db.prepare(
+      'INSERT INTO product_options (id, kind, value, category_id, sort_order) VALUES (?, ?, ?, ?, ?)'
+    ).run(id, kind, v, categoryId || null, next);
+
+    res.json({ success: true, id, value: v, message: `${v} added` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+productsRouter.delete('/options/:id', (req: Request, res: Response) => {
+  try {
+    const row = db.prepare('SELECT kind, value FROM product_options WHERE id = ?').get(req.params.id) as any;
+    if (!row) return res.status(404).json({ error: 'Option not found' });
+
+    // Products already using it keep their value; only the list shrinks
+    db.prepare('DELETE FROM product_options WHERE id = ?').run(req.params.id);
+    res.json({ success: true, message: `${row.value} removed from the list` });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -161,7 +215,18 @@ productsRouter.put('/', (req: Request, res: Response) => {
     } = req.body || {};
 
     if (!sku || !String(sku).trim()) return res.status(400).json({ error: 'Product SKU is required' });
-    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Product name is required' });
+
+    // The form has no name field, by design: the name is the product
+    // described. Build it from category, colour and size, and fall back to
+    // the SKU so a product can never be saved nameless.
+    const categoryName = categoryId
+      ? (db.prepare('SELECT name FROM product_categories WHERE id = ?').get(categoryId) as any)?.name
+      : null;
+    const derivedName = [
+      categoryName,
+      [colour, size].filter(Boolean).join(' ')
+    ].filter(Boolean).join(' - ').trim();
+    const finalName = String(name || '').trim() || derivedName || String(sku).trim();
     if (categoryId && !db.prepare('SELECT 1 FROM product_categories WHERE id = ?').get(categoryId)) {
       return res.status(400).json({ error: 'Unknown category' });
     }
@@ -215,7 +280,7 @@ productsRouter.put('/', (req: Request, res: Response) => {
           packaging_item_id = excluded.packaging_item_id,
           updated_at = excluded.updated_at
       `).run(
-        productId, trimmedSku, String(name).trim(), description || null, notes || null,
+        productId, trimmedSku, finalName, description || null, notes || null,
         categoryId || null, type || null, colour || null, size || null,
         supplierName || null, supplierProductLink || null, imageUrl || null,
         blankItemId || null, packagingItemId || null, now, now
@@ -260,7 +325,7 @@ productsRouter.put('/', (req: Request, res: Response) => {
       throw e;
     }
 
-    res.json({ success: true, id: productId, message: `${trimmedSku} saved` });
+    res.json({ success: true, id: productId, name: finalName, message: `${trimmedSku} saved` });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

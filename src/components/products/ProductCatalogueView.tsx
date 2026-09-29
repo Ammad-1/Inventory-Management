@@ -245,6 +245,7 @@ export const ProductCatalogueView: React.FC = () => {
         onSaved={load}
         reference={reference}
         product={editing}
+        onReferenceChanged={load}
       />
     </div>
   );
