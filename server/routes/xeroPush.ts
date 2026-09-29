@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
-import crypto from 'node:crypto';
+import {
+  XeroAuth, xeroFetch, describeXeroError, mirrorInvoiceLocally, deductForInvoice
+} from '../services/xeroInvoice';
 
 /**
  * Outbound half of the Xero integration: mirroring reference data (contacts,
@@ -10,27 +12,9 @@ import crypto from 'node:crypto';
  * locally after Xero has accepted it and returned an InvoiceID.
  */
 export function createXeroPushRouter(
-  getValidAccessToken: () => Promise<{ accessToken: string; tenantId: string } | null>
+  getValidAccessToken: () => Promise<XeroAuth | null>
 ) {
   const router = Router();
-
-  const XERO_API = 'https://api.xero.com/api.xro/2.0';
-
-  const xeroFetch = async (
-    auth: { accessToken: string; tenantId: string },
-    path: string,
-    init: RequestInit = {}
-  ) =>
-    fetch(`${XERO_API}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${auth.accessToken}`,
-        'xero-tenant-id': auth.tenantId,
-        Accept: 'application/json',
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-        ...(init.headers || {})
-      }
-    });
 
   // ---------------------------------------------------------------- settings
 
@@ -421,18 +405,9 @@ export function createXeroPushRouter(
       const bodyText = await pushRes.text();
       if (!pushRes.ok) {
         console.error('[Xero Invoice Push Failed]', bodyText);
-        let detail = bodyText.slice(0, 400);
-        try {
-          const parsed = JSON.parse(bodyText);
-          const problems = (parsed.Elements || [])
-            .flatMap((e: any) => e.ValidationErrors || [])
-            .map((v: any) => v.Message);
-          if (problems.length) detail = problems.join('; ');
-          else if (parsed.Message) detail = parsed.Message;
-        } catch {
-          /* keep raw text */
-        }
-        return res.status(pushRes.status).json({ error: `Xero rejected the invoice: ${detail}` });
+        return res.status(pushRes.status).json({
+          error: `Xero rejected the invoice: ${describeXeroError(bodyText)}`
+        });
       }
 
       const created = (JSON.parse(bodyText).Invoices || [])[0];
@@ -441,83 +416,40 @@ export function createXeroPushRouter(
       }
 
       // ---- mirror locally, only now that Xero has it ----
-      const localId = `inv-${crypto.randomUUID().slice(0, 8)}`;
-      const now = new Date().toISOString();
-      const invoiceNumber = created.InvoiceNumber || `XERO-${created.InvoiceID.slice(0, 8)}`;
-
-      db.prepare(`
-        INSERT INTO xero_invoices (
-          id, invoice_number, type, customer_name, invoice_date, due_date,
-          total_amount, sub_total, total_tax, currency, status, line_items_json,
-          stock_deducted, deducted_at, created_at
-        ) VALUES (?, ?, 'ACCREC', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, null, ?)
-        ON CONFLICT(invoice_number) DO UPDATE SET
-          total_amount = excluded.total_amount,
-          sub_total = excluded.sub_total,
-          total_tax = excluded.total_tax,
-          status = excluded.status
-      `).run(
-        localId,
-        invoiceNumber,
-        created.Contact?.Name || contact.name,
-        (created.DateString || issueDate).slice(0, 10),
-        (created.DueDateString || due).slice(0, 10),
-        Number(created.Total ?? 0),
-        created.SubTotal ?? null,
-        created.TotalTax ?? null,
-        created.CurrencyCode || 'GBP',
-        created.Status || status,
-        JSON.stringify(builtLines.map(l => l.local)),
-        now
-      );
-
-      const stored = db.prepare('SELECT id FROM xero_invoices WHERE invoice_number = ?').get(invoiceNumber) as any;
+      const stored = mirrorInvoiceLocally({
+        created,
+        fallbackCustomerName: contact.name,
+        fallbackDate: issueDate,
+        fallbackDueDate: due,
+        fallbackStatus: status,
+        localLines: builtLines.map(l => l.local)
+      });
+      const invoiceNumber = stored.invoiceNumber;
 
       // Optional stock deduction. Done here rather than reported and skipped:
       // the caller asked for it, so either it happens or the response says why.
       let deducted = 0;
       let deductError: string | null = null;
-      if (deductStock && stored?.id) {
-        try {
-          db.exec('BEGIN');
-          for (const l of builtLines) {
-            if (l.local.nonStock) continue;
-            for (const itemId of [l.local.matchedBlankId, l.local.matchedBoxId]) {
-              if (!itemId) continue;
-              const item = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(itemId) as any;
-              if (!item) continue;
-              const newStock = Math.max(0, item.current_stock - l.local.quantity);
-              db.prepare('UPDATE inventory_items SET current_stock = ?, updated_at = ? WHERE id = ?')
-                .run(newStock, now, item.id);
-              db.prepare(`
-                INSERT INTO stock_movements (
-                  id, item_id, sku, item_name, movement_type, quantity_delta,
-                  resulting_stock, unit_cost, reference_id, operator_name, notes, created_at
-                ) VALUES (?, ?, ?, ?, 'xero_sale_deduct', ?, ?, ?, ?, 'Invoice push', ?, ?)
-              `).run(
-                `mov-${crypto.randomUUID().slice(0, 8)}`,
-                item.id, item.sku, item.name,
-                -l.local.quantity, newStock,
-                item.landed_cost_per_unit || item.cost_per_unit || 0,
-                invoiceNumber,
-                `Deducted when invoice ${invoiceNumber} was created from the app`,
-                now
-              );
-              deducted++;
-            }
-          }
-          db.prepare('UPDATE xero_invoices SET stock_deducted = 1, deducted_at = ? WHERE id = ?')
-            .run(now, stored.id);
-          db.exec('COMMIT');
-        } catch (e: any) {
-          db.exec('ROLLBACK');
-          deductError = e.message;
-        }
+      if (deductStock) {
+        const result = deductForInvoice(
+          builtLines
+            .filter(l => !l.local.nonStock)
+            .map(l => ({
+              quantity: l.local.quantity,
+              blankItemId: l.local.matchedBlankId,
+              packagingItemId: l.local.matchedBoxId
+            })),
+          invoiceNumber,
+          stored.id,
+          `Deducted when invoice ${invoiceNumber} was created from the app`
+        );
+        deducted = result.deducted;
+        deductError = result.error;
       }
 
       res.status(201).json({
         success: true,
-        invoiceId: stored?.id || localId,
+        invoiceId: stored.id,
         xeroInvoiceId: created.InvoiceID,
         invoiceNumber,
         status: created.Status || status,

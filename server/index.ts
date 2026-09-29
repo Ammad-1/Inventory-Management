@@ -12,7 +12,7 @@ import { ecommerceRouter } from './routes/ecommerce';
 import { shopifyRouter } from './routes/shopify';
 import { shipstationRouter } from './routes/shipstation';
 import { productsRouter } from './routes/products';
-import { quotesRouter } from './routes/quotes';
+import { createQuotesRouter } from './routes/quotes';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -65,7 +65,7 @@ app.use('/api/ecommerce', ecommerceRouter);
 app.use('/api/shopify', shopifyRouter);
 app.use('/api/shipstation', shipstationRouter);
 app.use('/api/products', productsRouter);
-app.use('/api/quotes', quotesRouter);
+app.use('/api/quotes', createQuotesRouter(getValidAccessToken));
 
 // Health check
 app.get('/api/health', (req, res) => {

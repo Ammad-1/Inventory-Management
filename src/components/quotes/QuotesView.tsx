@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Plus, Search, Loader2, AlertTriangle, FileText, Trash2, Send, Check, XCircle
+  Plus, Search, Loader2, AlertTriangle, FileText, Trash2, Send, Check, XCircle, Receipt
 } from 'lucide-react';
 import { Product, Quote, QuoteReference, QuoteStatus } from '../../types';
 import { QuoteBuilder } from './QuoteBuilder';
+import { InvoiceQuoteModal } from './InvoiceQuoteModal';
 
 const STATUS_STYLES: Record<QuoteStatus, string> = {
   draft: 'bg-slate-100 text-slate-600 border-slate-200',
@@ -34,6 +35,7 @@ export const QuotesView: React.FC = () => {
 
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editing, setEditing] = useState<Quote | null>(null);
+  const [invoicing, setInvoicing] = useState<Quote | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -69,11 +71,14 @@ export const QuotesView: React.FC = () => {
   const pipeline = useMemo(() => {
     const open = quotes.filter(q => q.status === 'sent');
     const won = quotes.filter(q => q.status === 'accepted');
+    const toInvoice = won.filter(q => !q.xeroInvoiceId);
     return {
       openCount: open.length,
       openValue: open.reduce((s, q) => s + q.grossTotal, 0),
       wonValue: won.reduce((s, q) => s + q.netTotal, 0),
-      wonProfit: won.reduce((s, q) => s + q.profit, 0)
+      wonProfit: won.reduce((s, q) => s + q.profit, 0),
+      toInvoiceCount: toInvoice.length,
+      toInvoiceValue: toInvoice.reduce((s, q) => s + q.grossTotal, 0)
     };
   }, [quotes]);
 
@@ -134,7 +139,7 @@ export const QuotesView: React.FC = () => {
       )}
 
       {quotes.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Out with customers</div>
             <div className="text-lg font-bold text-slate-900 tabular-nums mt-0.5">{money(pipeline.openValue)}</div>
@@ -144,6 +149,17 @@ export const QuotesView: React.FC = () => {
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Accepted, ex VAT</div>
             <div className="text-lg font-bold text-slate-900 tabular-nums mt-0.5">{money(pipeline.wonValue)}</div>
             <div className="text-[11px] text-slate-500">Revenue net of VAT</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Won, not yet invoiced</div>
+            <div className={`text-lg font-bold tabular-nums mt-0.5 ${pipeline.toInvoiceCount > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+              {money(pipeline.toInvoiceValue)}
+            </div>
+            <div className="text-[11px] text-slate-500">
+              {pipeline.toInvoiceCount === 0
+                ? 'Everything accepted has been billed'
+                : `${pipeline.toInvoiceCount} accepted quote${pipeline.toInvoiceCount === 1 ? '' : 's'} still to invoice`}
+            </div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Profit on accepted</div>
@@ -267,6 +283,12 @@ export const QuotesView: React.FC = () => {
                                 <Send className="w-3.5 h-3.5" />
                               </button>
                             )}
+                            {q.status === 'accepted' && !q.xeroInvoiceId && (
+                              <button onClick={() => setInvoicing(q)} title="Create the invoice in Xero"
+                                className="px-2 py-1 rounded-lg text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-1">
+                                <Receipt className="w-3.5 h-3.5" /> Invoice
+                              </button>
+                            )}
                             {q.status === 'sent' && (
                               <>
                                 <button onClick={() => setQuoteStatus(q, 'accepted')} title="Customer accepted"
@@ -295,6 +317,14 @@ export const QuotesView: React.FC = () => {
             </table>
           </div>
         </div>
+      )}
+
+      {invoicing && (
+        <InvoiceQuoteModal
+          quote={invoicing}
+          onClose={() => setInvoicing(null)}
+          onInvoiced={load}
+        />
       )}
 
       {builderOpen && (

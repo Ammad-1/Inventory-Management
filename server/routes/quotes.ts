@@ -2,6 +2,11 @@ import { Router, Request, Response } from 'express';
 import crypto from 'node:crypto';
 import { db } from '../db';
 import { calculateQuote, markupToMargin, marginToMarkup } from '../../shared/quotePricing';
+import {
+  XeroAuth, xeroFetch, describeXeroError, taxTypeForRate,
+  mirrorInvoiceLocally, deductForInvoice
+} from '../services/xeroInvoice';
+import { buildInvoiceLines, resolveStockForLines } from '../services/quoteToInvoice';
 
 /**
  * Quotes.
@@ -13,7 +18,10 @@ import { calculateQuote, markupToMargin, marginToMarkup } from '../../shared/quo
  * Line costs are snapshotted when the quote is saved. A quote already sent
  * to a customer must not change because a blank got more expensive.
  */
-export const quotesRouter = Router();
+export function createQuotesRouter(
+  getValidAccessToken: () => Promise<XeroAuth | null>
+) {
+const quotesRouter = Router();
 
 const now = () => new Date().toISOString();
 const uid = (p: string) => `${p}-${crypto.randomUUID().slice(0, 8)}`;
@@ -427,3 +435,219 @@ quotesRouter.delete('/:id', (req: Request, res: Response) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
+/* ------------------------------------------------------- quote -> invoice */
+
+/** Everything both the preview and the push need, or the reason it cannot run. */
+function prepareInvoice(quoteId: string) {
+  const quote = db.prepare('SELECT * FROM quotes WHERE id = ?').get(quoteId) as any;
+  if (!quote) return { error: 'Quote not found', status: 404 };
+
+  if (quote.xero_invoice_id) {
+    return {
+      error: `${quote.quote_number} is already invoiced as ${quote.xero_invoice_number}.`,
+      status: 409
+    };
+  }
+  if (quote.status !== 'accepted') {
+    return {
+      error: `${quote.quote_number} is ${quote.status}. Only an accepted quote can be invoiced.`,
+      status: 409
+    };
+  }
+  if (!quote.contact_id) {
+    return {
+      error: `${quote.quote_number} has no Xero customer attached. Edit it and pick one.`,
+      status: 400
+    };
+  }
+  const contact = db.prepare('SELECT * FROM xero_contacts WHERE contact_id = ?').get(quote.contact_id) as any;
+  if (!contact) {
+    return { error: 'That customer is no longer in Xero. Re-sync customers and try again.', status: 400 };
+  }
+
+  const quoteLines = db.prepare(
+    'SELECT * FROM quote_lines WHERE quote_id = ? ORDER BY sort_order'
+  ).all(quoteId) as any[];
+  if (quoteLines.length === 0) return { error: 'That quote has no items.', status: 400 };
+
+  const settings = db.prepare('SELECT * FROM invoice_settings WHERE id = ?').get('primary') as any;
+  const accountCode = settings?.default_account_code;
+  if (!accountCode) {
+    return { error: 'No revenue account code is set. Set one in Xero invoice settings first.', status: 400 };
+  }
+
+  const taxType = taxTypeForRate(quote.vat_rate, settings?.default_tax_type);
+  if (!taxType) {
+    return {
+      error: `No Xero tax rate matches ${quote.vat_rate}% VAT on income. Re-sync Xero reference data.`,
+      status: 400
+    };
+  }
+
+  const conversion = buildInvoiceLines(quote, quoteLines);
+  return { quote, contact, quoteLines, settings, accountCode, taxType, conversion };
+}
+
+/** Show the operator exactly what will be sent, before anything is created. */
+quotesRouter.get('/:id/invoice-preview', (req: Request, res: Response) => {
+  try {
+    const prep = prepareInvoice(req.params.id);
+    if ('error' in prep) return res.status(prep.status!).json({ error: prep.error });
+
+    const { quote, contact, conversion, accountCode, taxType, settings } = prep as any;
+    const vatTotal = Math.round(conversion.netTotal * (quote.vat_rate / 100) * 100) / 100;
+
+    res.json({
+      quoteNumber: quote.quote_number,
+      customerName: contact.name,
+      accountCode,
+      taxType,
+      vatRate: quote.vat_rate,
+      dueDays: settings?.default_due_days ?? 30,
+      lines: conversion.lines.map((l: any) => ({
+        description: l.description,
+        quantity: l.quantity,
+        unitAmount: l.unitAmount,
+        lineAmount: l.lineAmount,
+        nonStock: l.nonStock
+      })),
+      netTotal: conversion.netTotal,
+      vatTotal,
+      grossTotal: Math.round((conversion.netTotal + vatTotal) * 100) / 100,
+      quoteNetTotal: conversion.quoteNetTotal,
+      quoteGrossTotal: quote.gross_total,
+      roundingAdjustment: conversion.roundingAdjustment
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Create the invoice in Xero and record it against the quote.
+ *
+ * The quote is only marked invoiced after Xero returns an InvoiceID, so a
+ * failure here leaves it invoiceable again rather than stranded.
+ */
+quotesRouter.post('/:id/invoice', async (req: Request, res: Response) => {
+  try {
+    const auth = await getValidAccessToken();
+    if (!auth) return res.status(401).json({ error: 'Xero not connected. Connect your Xero account first.' });
+
+    const { status = 'DRAFT', deductStock = false } = req.body || {};
+    if (!['DRAFT', 'AUTHORISED'].includes(status)) {
+      return res.status(400).json({ error: 'status must be DRAFT or AUTHORISED' });
+    }
+
+    const prep = prepareInvoice(req.params.id);
+    if ('error' in prep) return res.status(prep.status!).json({ error: prep.error });
+    const { quote, contact, quoteLines, settings, accountCode, taxType, conversion } = prep as any;
+
+    const issueDate = new Date().toISOString().slice(0, 10);
+    const dueDate = new Date(Date.now() + (settings?.default_due_days ?? 30) * 86400000)
+      .toISOString().slice(0, 10);
+
+    const payload = {
+      Invoices: [{
+        Type: 'ACCREC',
+        Contact: { ContactID: quote.contact_id },
+        Date: issueDate,
+        DueDate: dueDate,
+        // Quote figures are all net, so VAT is added on top, never extracted
+        LineAmountTypes: 'Exclusive',
+        Status: status,
+        Reference: [quote.quote_number, quote.customer_reference].filter(Boolean).join(' / ').slice(0, 255),
+        LineItems: conversion.lines.map((l: any) => ({
+          Description: l.description,
+          Quantity: l.quantity,
+          UnitAmount: l.unitAmount,
+          AccountCode: String(accountCode),
+          TaxType: taxType
+        }))
+      }]
+    };
+
+    const pushRes = await xeroFetch(auth, '/Invoices', { method: 'POST', body: JSON.stringify(payload) });
+    const bodyText = await pushRes.text();
+    if (!pushRes.ok) {
+      console.error('[Quote Invoice Push Failed]', bodyText);
+      return res.status(pushRes.status).json({
+        error: `Xero rejected the invoice: ${describeXeroError(bodyText)}`
+      });
+    }
+
+    const created = (JSON.parse(bodyText).Invoices || [])[0];
+    if (!created?.InvoiceID) {
+      return res.status(502).json({ error: 'Xero accepted the request but returned no invoice' });
+    }
+
+    const drafts = resolveStockForLines(quoteLines, conversion.lines);
+    const stored = mirrorInvoiceLocally({
+      created,
+      fallbackCustomerName: contact.name,
+      fallbackDate: issueDate,
+      fallbackDueDate: dueDate,
+      fallbackStatus: status,
+      localLines: drafts.map((l: any) => ({
+        description: l.description,
+        quantity: l.quantity,
+        unitPrice: l.unitAmount,
+        matchedBlankId: l.blankItemId,
+        matchedBoxId: l.packagingItemId,
+        nonStock: l.nonStock,
+        manualMatch: true,
+        matchConfidence: 'manual' as const,
+        deducted: false
+      }))
+    });
+
+    // Stamped now, so the quote can never be invoiced a second time
+    db.prepare(
+      'UPDATE quotes SET xero_invoice_id = ?, xero_invoice_number = ?, updated_at = ? WHERE id = ?'
+    ).run(created.InvoiceID, stored.invoiceNumber, now(), quote.id);
+
+    let deducted = 0;
+    let deductError: string | null = null;
+    if (deductStock) {
+      const result = deductForInvoice(
+        drafts.filter((l: any) => !l.nonStock),
+        stored.invoiceNumber,
+        stored.id,
+        `Deducted when quote ${quote.quote_number} was invoiced as ${stored.invoiceNumber}`
+      );
+      deducted = result.deducted;
+      deductError = result.error;
+    }
+
+    res.status(201).json({
+      success: true,
+      quoteNumber: quote.quote_number,
+      invoiceId: stored.id,
+      xeroInvoiceId: created.InvoiceID,
+      invoiceNumber: stored.invoiceNumber,
+      status: created.Status || status,
+      subTotal: Number(created.SubTotal ?? 0),
+      totalTax: Number(created.TotalTax ?? 0),
+      total: Number(created.Total ?? 0),
+      onlineInvoiceUrl: created.OnlineInvoiceUrl || null,
+      stockDeducted: deductStock && !deductError,
+      stockMovements: deducted,
+      deductError,
+      message:
+        `${quote.quote_number} invoiced as ${stored.invoiceNumber} (${created.Status || status}).` +
+        (deductStock
+          ? deductError
+            ? ` The invoice was created, but the stock deduction failed: ${deductError}`
+            : ` ${deducted} stock movement${deducted === 1 ? '' : 's'} written.`
+          : '')
+    });
+  } catch (err: any) {
+    console.error('[Quote Invoice Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+  return quotesRouter;
+}

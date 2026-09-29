@@ -115,27 +115,32 @@ export function calculateQuote(input: QuoteTotalsInput): QuoteTotals {
   const beforeDiscount = totalCost * (1 + markupPct / 100);
   const netTotal = Math.max(0, beforeDiscount - discount);
 
+  // Round the net BEFORE deriving anything from it. An invoice adds up the
+  // figures it prints, so VAT has to be charged on the net the customer is
+  // shown and the gross has to be those two printed figures added together.
+  // Rounding each independently off the unrounded net leaves the quote a
+  // penny adrift from the invoice it turns into.
   const vatRate = Math.max(0, safe(input.vatRate));
-  const vatTotal = netTotal * (vatRate / 100);
-  const grossTotal = netTotal + vatTotal;
-
-  const profit = netTotal - totalCost;
+  const netRounded = round2(netTotal);
+  const vatRounded = round2(netRounded * (vatRate / 100));
+  const costRounded = round2(totalCost);
+  const profit = round2(netRounded - costRounded);
 
   return {
     lines,
     goodsCost: round2(goodsCost),
     shippingCost: round2(shippingCost),
     expressFee: round2(expressFee),
-    totalCost: round2(totalCost),
+    totalCost: costRounded,
     markupPct,
     discount: round2(discount),
-    netTotal: round2(netTotal),
+    netTotal: netRounded,
     vatRate,
-    vatTotal: round2(vatTotal),
-    grossTotal: round2(grossTotal),
-    profit: round2(profit),
+    vatTotal: vatRounded,
+    grossTotal: round2(netRounded + vatRounded),
+    profit,
     // Margin is profit over what we sell for, not over what we paid
-    marginPct: netTotal > 0 ? round2((profit / netTotal) * 100) : 0
+    marginPct: netRounded > 0 ? round2((profit / netRounded) * 100) : 0
   };
 }
 
