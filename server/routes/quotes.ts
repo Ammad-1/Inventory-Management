@@ -701,7 +701,8 @@ function getCompany(): CompanyDetails {
     email: row?.email || '',
     phone: row?.phone || '',
     website: row?.website || '',
-    vatNumber: row?.vat_number || ''
+    vatNumber: row?.vat_number || '',
+    quoteTerms: row?.quote_terms || ''
   };
 }
 

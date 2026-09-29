@@ -17,10 +17,26 @@ export const productsRouter = Router();
 productsRouter.get('/reference', (_req: Request, res: Response) => {
   try {
     const categories = db.prepare('SELECT id, name FROM product_categories ORDER BY sort_order').all() as any[];
-    const areas = db.prepare('SELECT id, category_id as categoryId, name FROM print_areas ORDER BY sort_order').all() as any[];
+    const areas = db.prepare(`
+      SELECT id, category_id as categoryId, name, image_path as imagePath
+      FROM print_areas ORDER BY sort_order
+    `).all() as any[];
+    const links = db.prepare(`
+      SELECT category_id as categoryId, decoration_type_id as decorationTypeId
+      FROM category_decoration_types
+    `).all() as any[];
+    const decorationTypes = db.prepare(
+      'SELECT id, name FROM decoration_types WHERE active = 1 ORDER BY sort_order'
+    ).all() as any[];
+
     res.json({
-      categories: categories.map(c => ({ ...c, printAreas: areas.filter(a => a.categoryId === c.id) })),
-      decorationTypes: db.prepare('SELECT id, name FROM decoration_types WHERE active = 1 ORDER BY sort_order').all()
+      categories: categories.map(c => ({
+        ...c,
+        printAreas: areas.filter(a => a.categoryId === c.id),
+        // The decorations this category actually offers; empty means all of them
+        decorationTypeIds: links.filter(l => l.categoryId === c.id).map(l => l.decorationTypeId)
+      })),
+      decorationTypes
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

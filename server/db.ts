@@ -459,10 +459,18 @@ export function initDatabase() {
       category_id TEXT NOT NULL,
       name TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      image_path TEXT,
       UNIQUE(category_id, name),
       FOREIGN KEY (category_id) REFERENCES product_categories(id)
     );
   `);
+
+  // Added after the table shipped, so existing databases need it too
+  try {
+    db.exec('ALTER TABLE print_areas ADD COLUMN image_path TEXT;');
+  } catch {
+    /* already there */
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS decoration_types (
@@ -470,6 +478,16 @@ export function initDatabase() {
       name TEXT UNIQUE NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
       active INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS category_decoration_types (
+      category_id TEXT NOT NULL,
+      decoration_type_id TEXT NOT NULL,
+      PRIMARY KEY (category_id, decoration_type_id),
+      FOREIGN KEY (category_id) REFERENCES product_categories(id),
+      FOREIGN KEY (decoration_type_id) REFERENCES decoration_types(id)
     );
   `);
 
@@ -568,6 +586,41 @@ export function initDatabase() {
       .forEach((n, i) => insDec.run(`dec-${n.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, n, i));
 
     console.log('[Database] Seeded product categories, print areas and decoration types');
+  }
+
+  // Attach the print-area photographs taken from the agreed layout. Run every
+  // start so a database seeded before the images existed picks them up.
+  {
+    const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const prefixes: Record<string, string> = {
+      'cat-mug': 'mug', 'cat-tshirt': 'tshirt', 'cat-hoodie': 'hoodie', 'cat-tote': 'tote'
+    };
+    const setImage = db.prepare('UPDATE print_areas SET image_path = ? WHERE id = ? AND image_path IS NULL');
+    for (const a of db.prepare('SELECT id, category_id, name FROM print_areas').all() as any[]) {
+      const prefix = prefixes[a.category_id];
+      if (!prefix) continue;
+      setImage.run(`/print-areas/${prefix}-${slug(a.name)}.jpg`, a.id);
+    }
+  }
+
+  // Which decorations each category offers, per the layout
+  if ((db.prepare('SELECT COUNT(*) as c FROM category_decoration_types').get() as any).c === 0) {
+    const sets: Record<string, string[]> = {
+      'cat-mug': ['Sublimation', 'Screen Print', 'UV', 'UV DTF'],
+      'cat-tshirt': ['DTG', 'DTF', 'Screen Print', 'Sublimation'],
+      'cat-hoodie': ['DTG', 'DTF', 'Screen Print', 'Embroidery'],
+      'cat-tote': ['DTG', 'DTF', 'Screen Print', 'Sublimation'],
+      'cat-bottle': ['UV', 'UV DTF', 'Laser Engraving', 'Screen Print']
+    };
+    const link = db.prepare('INSERT OR IGNORE INTO category_decoration_types (category_id, decoration_type_id) VALUES (?, ?)');
+    const findDec = db.prepare('SELECT id FROM decoration_types WHERE name = ?');
+    for (const [catId, names] of Object.entries(sets)) {
+      for (const n of names) {
+        const d = findDec.get(n) as any;
+        if (d) link.run(catId, d.id);
+      }
+    }
+    console.log('[Database] Linked decoration types to categories');
   }
 
   /* ------------------------------------------------------------------

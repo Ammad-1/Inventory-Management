@@ -22,7 +22,14 @@ import { BuildXeroInvoiceModal } from './components/modals/BuildXeroInvoiceModal
 import { InventoryItem } from './types';
 
 const MainAppContent: React.FC = () => {
-  const { activeView } = useInventory();
+  const { activeView, setActiveView } = useInventory();
+
+  // The product page offers "Create Quote" straight after saving
+  React.useEffect(() => {
+    const go = () => setActiveView('quotes');
+    window.addEventListener('printberry:create-quote', go);
+    return () => window.removeEventListener('printberry:create-quote', go);
+  }, [setActiveView]);
 
   // Modal states
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);

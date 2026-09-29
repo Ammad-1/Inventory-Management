@@ -385,12 +385,16 @@ export interface PrintArea {
   id: string;
   categoryId: string;
   name: string;
+  /** Photograph shown in the print-area diagram. */
+  imagePath?: string | null;
 }
 
 export interface ProductCategory {
   id: string;
   name: string;
   printAreas: PrintArea[];
+  /** Decorations this category offers. Empty means every type. */
+  decorationTypeIds: string[];
 }
 
 export interface DecorationType {
