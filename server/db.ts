@@ -818,9 +818,18 @@ export function initDatabase() {
       vat_number TEXT,
       registration_number TEXT,
       quote_terms TEXT,
+      -- Off by default: the link on a product is often the SUPPLIER's, and
+      -- printing that on a customer quote shows them where you buy.
+      show_product_links INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     );
   `);
+
+  try {
+    db.exec('ALTER TABLE company_details ADD COLUMN show_product_links INTEGER NOT NULL DEFAULT 0;');
+  } catch {
+    /* already there */
+  }
 
   db.prepare(`
     INSERT OR IGNORE INTO company_details (id, name, updated_at)

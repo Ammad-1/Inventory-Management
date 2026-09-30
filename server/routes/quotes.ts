@@ -78,7 +78,8 @@ quotesRouter.get('/company', (_req: Request, res: Response) => {
       website: row?.website || '',
       vatNumber: row?.vat_number || '',
       registrationNumber: row?.registration_number || '',
-      quoteTerms: row?.quote_terms || ''
+      quoteTerms: row?.quote_terms || '',
+      showProductLinks: !!row?.show_product_links
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -94,12 +95,13 @@ quotesRouter.put('/company', (req: Request, res: Response) => {
     db.prepare(`
       UPDATE company_details SET
         name = ?, address_lines = ?, email = ?, phone = ?,
-        website = ?, vat_number = ?, registration_number = ?, quote_terms = ?, updated_at = ?
+        website = ?, vat_number = ?, registration_number = ?, quote_terms = ?,
+        show_product_links = ?, updated_at = ?
       WHERE id = 'primary'
     `).run(
       String(b.name).trim(), b.addressLines || null, b.email || null, b.phone || null,
       b.website || null, b.vatNumber || null, b.registrationNumber || null,
-      b.quoteTerms || null, now()
+      b.quoteTerms || null, b.showProductLinks ? 1 : 0, now()
     );
     res.json({ success: true, message: 'Company details saved' });
   } catch (err: any) {
@@ -765,7 +767,8 @@ function getCompany(): CompanyDetails {
     phone: row?.phone || '',
     website: row?.website || '',
     vatNumber: row?.vat_number || '',
-    quoteTerms: row?.quote_terms || ''
+    quoteTerms: row?.quote_terms || '',
+    showProductLinks: !!row?.show_product_links
   };
 }
 
@@ -773,7 +776,7 @@ function getCompany(): CompanyDetails {
  * The quote as a PDF. `?disposition=inline` renders it in the browser for
  * the preview; the default prompts a download.
  */
-quotesRouter.get('/:id/pdf', (req: Request, res: Response) => {
+quotesRouter.get('/:id/pdf', async (req: Request, res: Response) => {
   try {
     const quote = db.prepare('SELECT quote_number FROM quotes WHERE id = ?').get(req.params.id) as any;
     if (!quote) return res.status(404).json({ error: 'Quote not found' });
@@ -787,7 +790,8 @@ quotesRouter.get('/:id/pdf', (req: Request, res: Response) => {
       `${inline ? 'inline' : 'attachment'}; filename="${filename}"`
     );
 
-    const doc = buildQuotePdf(req.params.id, getCompany());
+    // Product photographs are fetched before the document is drawn
+    const doc = await buildQuotePdf(req.params.id, getCompany());
     doc.pipe(res);
     doc.end();
   } catch (err: any) {

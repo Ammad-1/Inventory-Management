@@ -13,7 +13,8 @@ interface Props {
 export const CompanyDetailsModal: React.FC<Props> = ({ onClose, onSaved }) => {
   const [form, setForm] = useState({
     name: '', addressLines: '', email: '', phone: '',
-    website: '', vatNumber: '', registrationNumber: '', quoteTerms: ''
+    website: '', vatNumber: '', registrationNumber: '', quoteTerms: '',
+    showProductLinks: false
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -115,6 +116,21 @@ export const CompanyDetailsModal: React.FC<Props> = ({ onClose, onSaved }) => {
                 <input className={F} value={form.vatNumber} placeholder="GB…"
                   onChange={e => setForm({ ...form, vatNumber: e.target.value })} />
               </div>
+              <div className="col-span-2 rounded-lg border border-amber-200 bg-amber-50/60 p-2.5">
+                <label className="flex items-start gap-2 text-[13px] text-slate-800">
+                  <input type="checkbox" className="mt-0.5" checked={form.showProductLinks}
+                    onChange={e => setForm({ ...form, showProductLinks: e.target.checked })} />
+                  <span>
+                    Print product links on the quote
+                    <span className="block text-[11px] text-amber-800 mt-0.5">
+                      Careful: a product's link is often the <strong>supplier's</strong> page.
+                      Printing that shows the customer where you buy, and what the blank costs.
+                      Safe when the link points at your own shop.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
               <div className="col-span-2">
                 <label className={L}>Quote terms &amp; conditions</label>
                 <textarea className={`${F} h-[86px] resize-none`} value={form.quoteTerms}

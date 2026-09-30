@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { db } from '../db';
 import { calculateQuote } from '../../shared/quotePricing';
+import { getProductImage, getPrintAreaImage } from './imageCache';
 
 /**
  * The customer-facing quote, laid out to the owner's design: PrintBerry
@@ -51,6 +52,8 @@ export interface CompanyDetails {
   vatNumber?: string;
   website?: string;
   quoteTerms?: string;
+  /** Print each item's product link. Off unless the owner turns it on. */
+  showProductLinks?: boolean;
 }
 
 const DEFAULT_TERMS = [
@@ -61,7 +64,10 @@ const DEFAULT_TERMS = [
 
 const LOGO = path.resolve(process.cwd(), 'public', 'brand', 'printberry-logo.png');
 
-export function buildQuotePdf(quoteId: string, company: CompanyDetails): PDFKit.PDFDocument {
+export async function buildQuotePdf(
+  quoteId: string,
+  company: CompanyDetails
+): Promise<PDFKit.PDFDocument> {
   const quote = db.prepare('SELECT * FROM quotes WHERE id = ?').get(quoteId) as any;
   if (!quote) throw new Error('Quote not found');
 
@@ -202,8 +208,40 @@ export function buildQuotePdf(quoteId: string, company: CompanyDetails): PDFKit.
   // The product panel only makes sense when the quote is for one product
   const first = lines[0];
   const firstProduct = first?.product_id
-    ? db.prepare('SELECT colour, size, type, image_url FROM products WHERE id = ?').get(first.product_id) as any
+    ? db.prepare(
+        'SELECT colour, size, type, supplier_name, image_url FROM products WHERE id = ?'
+      ).get(first.product_id) as any
     : null;
+
+  /*
+   * Photographs are fetched up front rather than mid-draw, because pdfkit
+   * lays out synchronously and awaiting inside the drawing would put the
+   * cursor somewhere unpredictable by the time the bytes arrived.
+   */
+  const lineImages = new Map<string, Buffer>();
+  for (const l of lines) {
+    const url = l.image_url || (l.product_id
+      ? (db.prepare('SELECT image_url FROM products WHERE id = ?').get(l.product_id) as any)?.image_url
+      : null);
+    const buf = await getProductImage(url);
+    if (buf) lineImages.set(l.id, buf);
+  }
+
+  /** Print-area diagrams, so the customer sees where the print goes. */
+  const areaImages = new Map<string, Buffer>();
+  for (const l of lines) {
+    const areas = db.prepare(`
+      SELECT DISTINCT a.name, a.image_path
+      FROM quote_line_decorations d
+      LEFT JOIN print_areas a ON a.id = d.print_area_id
+      WHERE d.quote_line_id = ? AND a.image_path IS NOT NULL
+    `).all(l.id) as any[];
+    for (const a of areas) {
+      if (areaImages.has(a.name)) continue;
+      const buf = getPrintAreaImage(a.image_path);
+      if (buf) areaImages.set(a.name, buf);
+    }
+  }
 
   let panelH = 0;
   if (first) {
@@ -214,17 +252,44 @@ export function buildQuotePdf(quoteId: string, company: CompanyDetails): PDFKit.
     if (firstProduct?.type) rows.push(['Type:', firstProduct.type]);
     if (lines.length > 1) rows.push(['', `+ ${lines.length - 1} more item${lines.length === 2 ? '' : 's'}`]);
 
-    panelH = 22 + rows.length * 13 + 8;
+    const photo = lineImages.get(first.id);
+    const photoW = photo ? 62 : 0;
+
+    const textX = panelX + 10 + (photo ? photoW + 8 : 0);
+    const textW = panelW - 20 - (photo ? photoW + 8 : 0);
+    const valueW = Math.max(40, textW - 42);
+
+    /*
+     * Measure before drawing. A long product name or SKU wraps onto two or
+     * three lines, and advancing a fixed 13px per row printed the next
+     * label straight through it.
+     */
+    const rowHeights = rows.map(([, v]) =>
+      Math.max(11, doc.font('Helvetica-Bold').fontSize(8).heightOfString(v, { width: valueW })));
+    const textH = rowHeights.reduce((a, b) => a + b + 2, 0);
+
+    panelH = Math.max(24 + textH + 8, photo ? 84 : 0);
     box(panelX, blockTop - 6, panelW, panelH, PINK);
     label('Selected product', panelX + 10, blockTop + 2, panelW - 20);
-    let py = blockTop + 17;
-    for (const [k, v] of rows) {
-      doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
-        .text(k, panelX + 10, py, { width: 48 });
-      doc.font('Helvetica-Bold').fontSize(8.5).fillColor(INK)
-        .text(v, panelX + 58, py, { width: panelW - 68 });
-      py += 13;
+
+    if (photo) {
+      try {
+        doc.image(photo, panelX + 10, blockTop + 16, {
+          fit: [photoW, panelH - 30], align: 'center', valign: 'center'
+        });
+      } catch {
+        /* a photograph pdfkit cannot decode is simply not shown */
+      }
     }
+
+    let py = blockTop + 17;
+    rows.forEach(([k, v], ri) => {
+      doc.font('Helvetica').fontSize(8).fillColor(MUTED)
+        .text(k, textX, py, { width: 42 });
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(INK)
+        .text(v, textX + 42, py, { width: valueW });
+      py += rowHeights[ri] + 2;
+    });
   }
 
   y = Math.max(aY, bY, blockTop + panelH) + 14;
@@ -268,13 +333,34 @@ export function buildQuotePdf(quoteId: string, company: CompanyDetails): PDFKit.
     const bulletText = (items: string[]) =>
       items.length ? items.map(t => `•  ${t}`).join('\n') : '—';
 
-    const iw = COLS[0].w - 12;
-    const nameH = doc.font('Helvetica-Bold').fontSize(9).heightOfString(l.product_name, { width: iw - 34 });
+    const photo = lineImages.get(l.id);
+    const THUMB = photo ? 40 : 0;
+
+    /* What the customer wants to know about the item itself. */
+    const prod = l.product_id
+      ? db.prepare('SELECT colour, size, type FROM products WHERE id = ?').get(l.product_id) as any
+      : null;
+    const spec = [prod?.colour, prod?.size, prod?.type].filter(Boolean).join(' · ');
+
+    const productLink = company.showProductLinks && l.product_id
+      ? (db.prepare('SELECT supplier_product_link FROM products WHERE id = ?')
+          .get(l.product_id) as any)?.supplier_product_link
+      : null;
+
+    const iw = COLS[0].w - 12 - (THUMB ? THUMB + 8 : 0);
+    const nameH = doc.font('Helvetica-Bold').fontSize(9).heightOfString(l.product_name, { width: iw });
+    const specH = spec ? doc.font('Helvetica').fontSize(7.5).heightOfString(spec, { width: iw }) : 0;
+
+    // A print area with a diagram gets one, which is why the row grows
+    const areaDiagrams = areas.map(a => areaImages.get(a)).filter(Boolean) as Buffer[];
+    const diagramH = areaDiagrams.length ? 42 : 0;
+
     const listH = Math.max(
-      doc.font('Helvetica').fontSize(8.5).heightOfString(bulletText(areas), { width: COLS[1].w - 12 }),
+      doc.font('Helvetica').fontSize(8.5).heightOfString(bulletText(areas), { width: COLS[1].w - 12 }) + diagramH,
       doc.font('Helvetica').fontSize(8.5).heightOfString(bulletText(types), { width: COLS[2].w - 12 })
     );
-    const rowH = Math.max(42, nameH + 22, listH + 14);
+    const linkH = productLink ? 10 : 0;
+    const rowH = Math.max(48, nameH + specH + 24 + linkH, listH + 14, THUMB + 14);
 
     if (y + rowH > A4.height - M - 250) {
       doc.addPage();
@@ -285,26 +371,63 @@ export function buildQuotePdf(quoteId: string, company: CompanyDetails): PDFKit.
     const top = y;
     doc.rect(M, top, CONTENT, rowH).strokeColor(RULE).lineWidth(0.6).stroke();
 
-    // item: thumbnail where we have one, then name and SKU
-    let textX = colX(0) + 8;
-    const thumb = l.image_url;
-    if (thumb && /^https?:\/\//i.test(String(thumb))) {
-      // Remote images are not fetched at render time; the name carries it
+    // item: the photograph, then the name, spec and SKU beside it
+    if (photo) {
+      try {
+        doc.image(photo, colX(0) + 6, top + 6, {
+          fit: [THUMB, rowH - 12], align: 'center', valign: 'center'
+        });
+      } catch {
+        /* undecodable photograph: the text still carries the item */
+      }
     }
+    const textX = colX(0) + 8 + (THUMB ? THUMB + 8 : 0);
+
     doc.font('Helvetica-Bold').fontSize(9).fillColor(INK)
-      .text(l.product_name, textX, top + 8, { width: iw });
+      .text(l.product_name, textX, top + 7, { width: iw });
+    let ty = top + 7 + nameH;
+    if (spec) {
+      doc.font('Helvetica').fontSize(7.5).fillColor(INK).text(spec, textX, ty, { width: iw });
+      ty += specH;
+    }
     if (l.product_sku) {
       doc.font('Helvetica').fontSize(7.5).fillColor(MUTED)
-        .text(`SKU: ${l.product_sku}`, textX, top + 8 + nameH + 1, { width: iw });
+        .text(`SKU: ${l.product_sku}`, textX, ty + 1, { width: iw });
+      ty += 10;
     }
     if (l.description) {
       doc.font('Helvetica-Oblique').fontSize(7.5).fillColor(MUTED)
-        .text(String(l.description), textX, top + 8 + nameH + 11, { width: iw });
+        .text(String(l.description), textX, ty + 1, { width: iw });
+      ty += 10;
+    }
+    if (productLink) {
+      doc.font('Helvetica').fontSize(7).fillColor(PURPLE)
+        .text(String(productLink), textX, ty + 1, {
+          width: iw, link: String(productLink), underline: true
+        });
     }
 
     doc.font('Helvetica').fontSize(8.5).fillColor(INK)
       .text(bulletText(areas), colX(1) + 6, top + 8, { width: COLS[1].w - 12 });
-    doc.text(bulletText(types), colX(2) + 6, top + 8, { width: COLS[2].w - 12 });
+
+    // The diagram says where the print goes better than the words do
+    if (areaDiagrams.length) {
+      const areasTextH = doc.font('Helvetica').fontSize(8.5)
+        .heightOfString(bulletText(areas), { width: COLS[1].w - 12 });
+      let dx = colX(1) + 6;
+      const dy = top + 10 + areasTextH;
+      for (const diagram of areaDiagrams.slice(0, 3)) {
+        try {
+          doc.image(diagram, dx, dy, { fit: [36, 36], align: 'center', valign: 'center' });
+        } catch {
+          /* skip a diagram pdfkit cannot decode */
+        }
+        dx += 40;
+      }
+    }
+
+    doc.font('Helvetica').fontSize(8.5).fillColor(INK)
+      .text(bulletText(types), colX(2) + 6, top + 8, { width: COLS[2].w - 12 });
 
     const mid = top + rowH / 2 - 5;
     doc.font('Helvetica').fontSize(9.5).fillColor(INK)
