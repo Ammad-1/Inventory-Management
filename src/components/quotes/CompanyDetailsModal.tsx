@@ -16,6 +16,9 @@ export const CompanyDetailsModal: React.FC<Props> = ({ onClose, onSaved }) => {
     website: '', vatNumber: '', registrationNumber: '', quoteTerms: '',
     showProductLinks: false
   });
+  const [linkDomains, setLinkDomains] = useState<
+    { domain: string; isOwn: boolean; skus: string[] }[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +27,9 @@ export const CompanyDetailsModal: React.FC<Props> = ({ onClose, onSaved }) => {
     (async () => {
       try {
         const d = await fetch('/api/quotes/company').then(r => r.json());
-        setForm(f => ({ ...f, ...d }));
+        setLinkDomains(d.productLinkDomains || []);
+        const { productLinkDomains, ...fields } = d;
+        setForm(f => ({ ...f, ...fields }));
       } catch {
         setError('Could not load your company details.');
       } finally {
@@ -123,10 +128,24 @@ export const CompanyDetailsModal: React.FC<Props> = ({ onClose, onSaved }) => {
                   <span>
                     Print product links on the quote
                     <span className="block text-[11px] text-amber-800 mt-0.5">
-                      Careful: a product's link is often the <strong>supplier's</strong> page.
-                      Printing that shows the customer where you buy, and what the blank costs.
-                      Safe when the link points at your own shop.
+                      Adds a "See actual product" button to each line. A product's link is often
+                      the <strong>supplier's</strong> page, which shows the customer where you buy.
                     </span>
+                    {linkDomains.length > 0 && (
+                      <span className="block mt-1.5 space-y-0.5">
+                        {linkDomains.map(d => (
+                          <span key={d.domain} className="flex items-baseline gap-1.5 text-[11px]">
+                            <span className={`font-bold ${d.isOwn ? 'text-emerald-700' : 'text-rose-700'}`}>
+                              {d.isOwn ? 'yours' : 'supplier'}
+                            </span>
+                            <span className="font-mono text-slate-700">{d.domain}</span>
+                            <span className="text-slate-500">
+                              ({d.skus.length} product{d.skus.length === 1 ? '' : 's'}: {d.skus.slice(0, 3).join(', ')})
+                            </span>
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </span>
                 </label>
               </div>

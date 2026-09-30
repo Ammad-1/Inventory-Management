@@ -350,6 +350,12 @@ export async function buildQuotePdf(
     const iw = COLS[0].w - 12 - (THUMB ? THUMB + 8 : 0);
     const nameH = doc.font('Helvetica-Bold').fontSize(9).heightOfString(l.product_name, { width: iw });
     const specH = spec ? doc.font('Helvetica').fontSize(7.5).heightOfString(spec, { width: iw }) : 0;
+    const skuH = l.product_sku
+      ? doc.font('Helvetica').fontSize(7.5).heightOfString(`SKU: ${l.product_sku}`, { width: iw }) + 1
+      : 0;
+    const descH = l.description
+      ? doc.font('Helvetica-Oblique').fontSize(7.5).heightOfString(String(l.description), { width: iw }) + 1
+      : 0;
 
     // A print area with a diagram gets one, which is why the row grows
     const areaDiagrams = areas.map(a => areaImages.get(a)).filter(Boolean) as Buffer[];
@@ -359,8 +365,8 @@ export async function buildQuotePdf(
       doc.font('Helvetica').fontSize(8.5).heightOfString(bulletText(areas), { width: COLS[1].w - 12 }) + diagramH,
       doc.font('Helvetica').fontSize(8.5).heightOfString(bulletText(types), { width: COLS[2].w - 12 })
     );
-    const linkH = productLink ? 10 : 0;
-    const rowH = Math.max(48, nameH + specH + 24 + linkH, listH + 14, THUMB + 14);
+    const linkH = productLink ? 18 : 0;
+    const rowH = Math.max(48, nameH + specH + skuH + descH + linkH + 14, listH + 14, THUMB + 14);
 
     if (y + rowH > A4.height - M - 250) {
       doc.addPage();
@@ -391,20 +397,41 @@ export async function buildQuotePdf(
       ty += specH;
     }
     if (l.product_sku) {
+      const skuText = `SKU: ${l.product_sku}`;
       doc.font('Helvetica').fontSize(7.5).fillColor(MUTED)
-        .text(`SKU: ${l.product_sku}`, textX, ty + 1, { width: iw });
-      ty += 10;
+        .text(skuText, textX, ty + 1, { width: iw });
+      // A long SKU wraps, and a fixed advance put the button through it
+      ty += doc.heightOfString(skuText, { width: iw }) + 1;
     }
     if (l.description) {
+      const descText = String(l.description);
       doc.font('Helvetica-Oblique').fontSize(7.5).fillColor(MUTED)
-        .text(String(l.description), textX, ty + 1, { width: iw });
-      ty += 10;
+        .text(descText, textX, ty + 1, { width: iw });
+      ty += doc.heightOfString(descText, { width: iw }) + 1;
     }
+    /*
+     * A button rather than the bare URL. A supplier address printed in full
+     * looks untidy on a customer document and advertises where the blank
+     * comes from; the label carries the meaning and the link does the work.
+     */
     if (productLink) {
-      doc.font('Helvetica').fontSize(7).fillColor(PURPLE)
-        .text(String(productLink), textX, ty + 1, {
-          width: iw, link: String(productLink), underline: true
+      const CAPTION = 'See actual product';
+      const bw = doc.font('Helvetica-Bold').fontSize(7).widthOfString(CAPTION) + 16;
+      const bh = 13;
+      const bx = textX;
+      const by = ty + 2;
+
+      doc.roundedRect(bx, by, Math.min(bw, iw), bh, 6.5)
+        .fillColor('#f6ecf6').fill();
+      doc.roundedRect(bx, by, Math.min(bw, iw), bh, 6.5)
+        .strokeColor(PURPLE).lineWidth(0.6).stroke();
+      doc.font('Helvetica-Bold').fontSize(7).fillColor(PURPLE)
+        .text(CAPTION, bx, by + 3.6, {
+          width: Math.min(bw, iw), align: 'center', link: String(productLink)
         });
+
+      // The whole pill is clickable, not just the glyphs
+      doc.link(bx, by, Math.min(bw, iw), bh, String(productLink));
     }
 
     doc.font('Helvetica').fontSize(8.5).fillColor(INK)

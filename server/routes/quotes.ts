@@ -67,6 +67,34 @@ quotesRouter.get('/reference', (_req: Request, res: Response) => {
   }
 });
 
+/** Where each product's link points, and whether that is our own site. */
+function linkAudit(ownWebsite: string) {
+  let ownHost = '';
+  try {
+    ownHost = new URL(/^https?:\/\//i.test(ownWebsite) ? ownWebsite : `https://${ownWebsite}`)
+      .hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    ownHost = '';
+  }
+
+  const seen = new Map<string, { domain: string; isOwn: boolean; skus: string[] }>();
+  for (const p of db.prepare(
+    "SELECT sku, supplier_product_link FROM products WHERE supplier_product_link IS NOT NULL AND supplier_product_link != ''"
+  ).all() as any[]) {
+    let host: string;
+    try {
+      host = new URL(p.supplier_product_link).hostname.replace(/^www\./, '').toLowerCase();
+    } catch {
+      continue;
+    }
+    const isOwn = !!ownHost && (host === ownHost || host.endsWith(`.${ownHost}`));
+    const entry = seen.get(host) || { domain: host, isOwn, skus: [] };
+    entry.skus.push(p.sku);
+    seen.set(host, entry);
+  }
+  return [...seen.values()].sort((a, b) => Number(a.isOwn) - Number(b.isOwn));
+}
+
 quotesRouter.get('/company', (_req: Request, res: Response) => {
   try {
     const row = db.prepare('SELECT * FROM company_details WHERE id = ?').get('primary') as any;
@@ -79,7 +107,10 @@ quotesRouter.get('/company', (_req: Request, res: Response) => {
       vatNumber: row?.vat_number || '',
       registrationNumber: row?.registration_number || '',
       quoteTerms: row?.quote_terms || '',
-      showProductLinks: !!row?.show_product_links
+      showProductLinks: !!row?.show_product_links,
+      // Concrete beats a general warning: name the sites a quote would
+      // send the customer to, and which of them are not ours.
+      productLinkDomains: linkAudit(row?.website || '')
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
