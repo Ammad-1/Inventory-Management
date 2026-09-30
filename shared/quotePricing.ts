@@ -5,20 +5,30 @@
  * builder (which previews it), so the figure the sales rep sees is the
  * figure that gets saved. Do not reimplement any of this elsewhere.
  *
- * Two rules matter, and the owner's original layout got both wrong:
+ * A quote has two sides that must not be confused:
  *
- * 1. Markup is applied to NET cost only. The earlier layout added 20% VAT
- *    to its own costs and then marked that up too. VAT on what we buy is
- *    reclaimable input tax, not a cost, so marking it up charges the
- *    customer a margin on money HMRC gives back.
+ *   COST  — what the job costs us. Blank, packaging, decoration, setup,
+ *           freight. Net of VAT, because supplier VAT is reclaimable.
+ *   PRICE — what we charge the customer. Entered directly, because that
+ *           is how a price is decided: you know you are charging £8 a
+ *           tee, not that you are charging cost plus 31.4%.
  *
- * 2. "30% margin" in that layout was a 30% MARKUP. Cost x 1.30 leaves a
- *    23.1% margin, not 30%. Both figures are returned here so the quote
- *    can show them side by side and nobody has to guess which is meant.
+ * Markup is a convenience for filling the price in, not the definition of
+ * it. Margin is then reported from the two sides, which is the honest way
+ * round: price is chosen, margin is the consequence.
+ *
+ * Two rules the owner's original layout got wrong, kept fixed here:
+ *
+ * 1. VAT is charged on the selling price and never marked up. VAT we pay
+ *    suppliers is reclaimable input tax, not a cost.
+ * 2. "30% margin" there meant a 30% markup. Cost x 1.30 leaves a 23.1%
+ *    margin. Both figures are returned so nobody has to guess which.
  */
 
 export interface QuoteLineInput {
   quantity: number;
+
+  /* ---- cost side, used for margin ---- */
   /** Per unit, from the linked inventory item at the time the line was added. */
   blankCost: number;
   packagingCost: number;
@@ -28,6 +38,15 @@ export interface QuoteLineInput {
   setupCost: number;
   /** The line cannot be quoted below this, however small the run. */
   minCharge?: number;
+
+  /* ---- price side, what the customer pays ---- */
+  /**
+   * Selling price per unit, excluding VAT. When set, this is the price:
+   * markup is not applied on top of it.
+   */
+  unitPrice?: number | null;
+  /** One-off charge for the line, excluding VAT — origination, setup, artwork. */
+  setupPrice?: number | null;
 }
 
 export interface QuoteLineCosts {
@@ -40,13 +59,40 @@ export interface QuoteLineCosts {
   /** What the line actually costs once the minimum charge is honoured. */
   lineCost: number;
   minChargeApplied: boolean;
+
+  /** What the customer is charged for this line, excluding VAT. */
+  lineprice: number;
+  /** lineprice / quantity, for display. */
+  effectiveUnitPrice: number;
+  /** True when the price was entered rather than derived from markup. */
+  pricedManually: boolean;
+  /** Profit on this line alone. */
+  lineProfit: number;
+  lineMarginPct: number;
+}
+
+/** Anything else being charged: artwork, samples, carriage surcharge. */
+export interface QuoteChargeInput {
+  description?: string;
+  /** Excluding VAT. */
+  amount: number;
+  /** What it costs us, if anything. Leave at zero for pure margin. */
+  cost?: number;
 }
 
 export interface QuoteTotalsInput {
   lines: QuoteLineInput[];
+
+  /** What freight costs us. */
   shippingCost: number;
   expressFee: number;
-  /** Percent, e.g. 30 for a 30% markup on cost. */
+  /** What we charge for them. Falls back to the cost plus markup when unset. */
+  shippingPrice?: number | null;
+  expressPrice?: number | null;
+
+  charges?: QuoteChargeInput[];
+
+  /** Percent. Only fills in prices that were not entered directly. */
   markupPct: number;
   /** Percent, e.g. 20. VAT is charged on the selling price, not on cost. */
   vatRate: number;
@@ -56,12 +102,21 @@ export interface QuoteTotalsInput {
 
 export interface QuoteTotals {
   lines: QuoteLineCosts[];
+
   /** Cost of the goods alone. */
   goodsCost: number;
   shippingCost: number;
   expressFee: number;
+  chargesCost: number;
   /** Everything the job costs us, net of reclaimable VAT. */
   totalCost: number;
+
+  /** What the customer is charged for the goods. */
+  goodsPrice: number;
+  shippingPrice: number;
+  expressPrice: number;
+  chargesPrice: number;
+
   markupPct: number;
   discount: number;
   /** What the customer pays before VAT. */
@@ -73,12 +128,18 @@ export interface QuoteTotals {
   profit: number;
   /** profit / netTotal. The honest figure. */
   marginPct: number;
+  /** The markup the chosen prices actually represent. */
+  effectiveMarkupPct: number;
+  /** True when every price came from markup rather than being entered. */
+  allPricesDerived: boolean;
 }
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const safe = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? n : 0);
+const given = (n: unknown): n is number =>
+  typeof n === 'number' && Number.isFinite(n) && n >= 0;
 
-export function costLine(line: QuoteLineInput): QuoteLineCosts {
+export function costLine(line: QuoteLineInput): Omit<QuoteLineCosts, 'lineprice'> & { lineCost: number } {
   const quantity = Math.max(0, Math.floor(safe(line.quantity)));
   const unitCost = safe(line.blankCost) + safe(line.packagingCost) + safe(line.decorationUnitCost);
   const setupCost = safe(line.setupCost);
@@ -94,34 +155,58 @@ export function costLine(line: QuoteLineInput): QuoteLineCosts {
     setupCost: round2(setupCost),
     rawCost: round2(rawCost),
     lineCost: round2(minChargeApplied ? minCharge : rawCost),
-    minChargeApplied
-  };
+    minChargeApplied,
+    lineprice: 0, effectiveUnitPrice: 0, pricedManually: false,
+    lineProfit: 0, lineMarginPct: 0
+  } as any;
 }
 
 export function calculateQuote(input: QuoteTotalsInput): QuoteTotals {
-  const lines = input.lines.map(costLine);
+  const markupPct = Math.max(0, safe(input.markupPct));
+  const factor = 1 + markupPct / 100;
 
-  const goodsCost = lines.reduce((sum, l) => sum + l.lineCost, 0);
+  const lines: QuoteLineCosts[] = input.lines.map(l => {
+    const costed = costLine(l) as any as QuoteLineCosts;
+
+    // An entered price is the price. Markup only fills the gap where none
+    // was given, so the two never compound.
+    const pricedManually = given(l.unitPrice) || given(l.setupPrice);
+    const lineprice = pricedManually
+      ? round2(safe(l.unitPrice) * costed.quantity + safe(l.setupPrice))
+      : round2(costed.lineCost * factor);
+
+    const lineProfit = round2(lineprice - costed.lineCost);
+    return {
+      ...costed,
+      lineprice,
+      effectiveUnitPrice: costed.quantity ? round2(lineprice / costed.quantity) : lineprice,
+      pricedManually,
+      lineProfit,
+      lineMarginPct: lineprice > 0 ? round2((lineProfit / lineprice) * 100) : 0
+    };
+  });
+
+  const goodsCost = lines.reduce((s, l) => s + l.lineCost, 0);
+  const goodsPrice = lines.reduce((s, l) => s + l.lineprice, 0);
+
   const shippingCost = safe(input.shippingCost);
   const expressFee = safe(input.expressFee);
+  // Freight is charged at what we say, or at cost plus markup if unstated
+  const shippingPrice = given(input.shippingPrice) ? input.shippingPrice : shippingCost * factor;
+  const expressPrice = given(input.expressPrice) ? input.expressPrice : expressFee * factor;
 
-  // Shipping and express are real costs of the job, so they carry markup
-  // like anything else. The breakdown shows them separately so that is visible.
-  const totalCost = goodsCost + shippingCost + expressFee;
+  const charges = input.charges || [];
+  const chargesPrice = charges.reduce((s, c) => s + safe(c.amount), 0);
+  const chargesCost = charges.reduce((s, c) => s + safe(c.cost), 0);
 
-  const markupPct = Math.max(0, safe(input.markupPct));
+  const totalCost = goodsCost + shippingCost + expressFee + chargesCost;
   const discount = Math.max(0, safe(input.discount));
 
-  const beforeDiscount = totalCost * (1 + markupPct / 100);
-  const netTotal = Math.max(0, beforeDiscount - discount);
-
   // Round the net BEFORE deriving anything from it. An invoice adds up the
-  // figures it prints, so VAT has to be charged on the net the customer is
-  // shown and the gross has to be those two printed figures added together.
-  // Rounding each independently off the unrounded net leaves the quote a
-  // penny adrift from the invoice it turns into.
+  // figures it prints, so VAT is charged on the net the customer is shown
+  // and the gross is those two printed figures added together.
+  const netRounded = round2(Math.max(0, goodsPrice + shippingPrice + expressPrice + chargesPrice - discount));
   const vatRate = Math.max(0, safe(input.vatRate));
-  const netRounded = round2(netTotal);
   const vatRounded = round2(netRounded * (vatRate / 100));
   const costRounded = round2(totalCost);
   const profit = round2(netRounded - costRounded);
@@ -131,7 +216,14 @@ export function calculateQuote(input: QuoteTotalsInput): QuoteTotals {
     goodsCost: round2(goodsCost),
     shippingCost: round2(shippingCost),
     expressFee: round2(expressFee),
+    chargesCost: round2(chargesCost),
     totalCost: costRounded,
+
+    goodsPrice: round2(goodsPrice),
+    shippingPrice: round2(shippingPrice),
+    expressPrice: round2(expressPrice),
+    chargesPrice: round2(chargesPrice),
+
     markupPct,
     discount: round2(discount),
     netTotal: netRounded,
@@ -140,7 +232,9 @@ export function calculateQuote(input: QuoteTotalsInput): QuoteTotals {
     grossTotal: round2(netRounded + vatRounded),
     profit,
     // Margin is profit over what we sell for, not over what we paid
-    marginPct: netRounded > 0 ? round2((profit / netRounded) * 100) : 0
+    marginPct: netRounded > 0 ? round2((profit / netRounded) * 100) : 0,
+    effectiveMarkupPct: costRounded > 0 ? round2((profit / costRounded) * 100) : 0,
+    allPricesDerived: lines.every(l => !l.pricedManually)
   };
 }
 
@@ -151,3 +245,7 @@ export const markupToMargin = (markupPct: number) =>
 /** Margin -> the markup needed to reach it. A 30% margin needs 42.9% markup. */
 export const marginToMarkup = (marginPct: number) =>
   marginPct >= 100 ? 0 : round2((marginPct / (100 - marginPct)) * 100);
+
+/** The price that reaches a target margin on a known cost. */
+export const priceForMargin = (cost: number, marginPct: number) =>
+  marginPct >= 100 ? 0 : round2(cost / (1 - marginPct / 100));

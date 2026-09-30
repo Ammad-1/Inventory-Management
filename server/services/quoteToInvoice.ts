@@ -26,8 +26,14 @@ export interface InvoiceLineDraft {
   lineAmount: number;
   blankItemId: string | null;
   packagingItemId: string | null;
-  /** Shipping and adjustments consume no stock. */
+  /** Shipping, setup and adjustments consume no stock. */
   nonStock: boolean;
+  /**
+   * The quote line this came from. Setup charges and freight are billed as
+   * their own lines, so drafts no longer sit one-to-one with quote lines
+   * and stock cannot be resolved by position.
+   */
+  quoteLineId?: string | null;
 }
 
 export interface ConversionResult {
@@ -43,6 +49,10 @@ export interface ConversionResult {
 export function buildInvoiceLines(quote: any, quoteLines: any[]): ConversionResult {
   // Recompute rather than trust the stored totals: this is the figure the
   // customer will actually be billed, so it is worth deriving again.
+  const charges = db.prepare(
+    'SELECT description, amount, cost FROM quote_charges WHERE quote_id = ? ORDER BY sort_order'
+  ).all(quote.id) as any[];
+
   const totals = calculateQuote({
     lines: quoteLines.map(l => ({
       quantity: l.quantity,
@@ -50,26 +60,38 @@ export function buildInvoiceLines(quote: any, quoteLines: any[]): ConversionResu
       packagingCost: l.packaging_cost,
       decorationUnitCost: l.decoration_unit_cost,
       setupCost: l.setup_cost,
-      minCharge: l.min_charge
+      minCharge: l.min_charge,
+      unitPrice: l.unit_price,
+      setupPrice: l.setup_price
     })),
     shippingCost: quote.shipping_cost,
     expressFee: quote.express_fee,
+    shippingPrice: quote.shipping_price,
+    expressPrice: quote.express_price,
+    charges: charges.map(c => ({ description: c.description, amount: c.amount, cost: c.cost })),
     markupPct: quote.markup_pct,
     vatRate: quote.vat_rate,
     discount: quote.discount
   });
 
-  const markupFactor = 1 + totals.markupPct / 100;
   const lines: InvoiceLineDraft[] = [];
 
   quoteLines.forEach((l, i) => {
     const costed = totals.lines[i];
-    const sellTotal = costed.lineCost * markupFactor;
     const quantity = costed.quantity || 1;
+
+    /*
+     * A setup charge is billed as its own line rather than folded into the
+     * unit price. Otherwise 50 tees at £8 with £90 origination invoices as
+     * "50 x £9.80", which is not the price the customer agreed to and
+     * invites the question of where £9.80 came from.
+     */
+    const setupPrice = round2(Number(l.setup_price) || 0);
+    const goodsTotal = round2(costed.lineprice - setupPrice);
 
     // 4dp is what Xero accepts for a unit amount; the line amount it
     // computes from that is what we have to reconcile against.
-    const unitAmount = round4(sellTotal / quantity);
+    const unitAmount = round4(goodsTotal / quantity);
 
     const decorations = db.prepare(`
       SELECT decoration_name, print_area_name, colours
@@ -85,7 +107,6 @@ export function buildInvoiceLines(quote: any, quoteLines: any[]): ConversionResu
     const parts = [l.product_name];
     if (l.product_sku) parts.push(`[${l.product_sku}]`);
     parts.push('-', decoText);
-    if (costed.setupCost > 0) parts.push(`- includes ${money(costed.setupCost * markupFactor)} setup`);
     if (costed.minChargeApplied) parts.push('- minimum charge applied');
     if (l.description) parts.push(`- ${l.description}`);
 
@@ -96,13 +117,26 @@ export function buildInvoiceLines(quote: any, quoteLines: any[]): ConversionResu
       lineAmount: round2(quantity * unitAmount),
       blankItemId: null,
       packagingItemId: null,
-      nonStock: false
+      nonStock: false,
+      quoteLineId: l.id
     });
+
+    if (setupPrice > 0) {
+      lines.push({
+        description: `Setup / origination — ${l.product_name}`.slice(0, 4000),
+        quantity: 1,
+        unitAmount: setupPrice,
+        lineAmount: setupPrice,
+        blankItemId: null,
+        packagingItemId: null,
+        nonStock: true
+      });
+    }
   });
 
   // Shipping and express carry the same markup, as they do in the quote
-  if (totals.shippingCost > 0) {
-    const amount = round2(totals.shippingCost * markupFactor);
+  if (totals.shippingPrice > 0) {
+    const amount = totals.shippingPrice;
     lines.push({
       description: [quote.shipping_method || 'Delivery',
         quote.carton_count ? `- ${quote.carton_count} carton${quote.carton_count === 1 ? '' : 's'}` : '',
@@ -115,10 +149,21 @@ export function buildInvoiceLines(quote: any, quoteLines: any[]): ConversionResu
       nonStock: true
     });
   }
-  if (totals.expressFee > 0) {
-    const amount = round2(totals.expressFee * markupFactor);
+  if (totals.expressPrice > 0) {
+    const amount = totals.expressPrice;
     lines.push({
       description: 'Express handling',
+      quantity: 1, unitAmount: amount, lineAmount: amount,
+      blankItemId: null, packagingItemId: null, nonStock: true
+    });
+  }
+
+  // Artwork, origination and the like bill as their own lines
+  for (const c of charges) {
+    const amount = round2(Number(c.amount) || 0);
+    if (amount <= 0) continue;
+    lines.push({
+      description: String(c.description).slice(0, 4000),
       quantity: 1, unitAmount: amount, lineAmount: amount,
       blankItemId: null, packagingItemId: null, nonStock: true
     });
@@ -161,15 +206,18 @@ export function buildInvoiceLines(quote: any, quoteLines: any[]): ConversionResu
 
 /** Resolve the stock each line consumes, for the optional deduction. */
 export function resolveStockForLines(quoteLines: any[], drafts: InvoiceLineDraft[]) {
-  quoteLines.forEach((l, i) => {
-    if (!drafts[i] || drafts[i].nonStock || !l.product_id) return;
+  const byId = new Map(quoteLines.map(l => [l.id, l]));
+  for (const draft of drafts) {
+    if (draft.nonStock || !draft.quoteLineId) continue;
+    const line = byId.get(draft.quoteLineId);
+    if (!line?.product_id) continue;
     const product = db.prepare(
       'SELECT blank_item_id, packaging_item_id FROM products WHERE id = ?'
-    ).get(l.product_id) as any;
-    if (!product) return;
-    drafts[i].blankItemId = product.blank_item_id || null;
-    drafts[i].packagingItemId = product.packaging_item_id || null;
-  });
+    ).get(line.product_id) as any;
+    if (!product) continue;
+    draft.blankItemId = product.blank_item_id || null;
+    draft.packagingItemId = product.packaging_item_id || null;
+  }
   return drafts;
 }
 

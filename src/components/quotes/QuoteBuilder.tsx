@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Loader2, Plus, Trash2, AlertTriangle, ImageIcon, Info, FileDown
 } from 'lucide-react';
-import { Product, Quote, QuoteLine, QuoteReference } from '../../types';
+import { Product, Quote, QuoteCharge, QuoteLine, QuoteReference } from '../../types';
 import { calculateQuote } from '../../../shared/quotePricing';
 import { QuoteLineEditor } from './QuoteLineEditor';
 import { useCanSeeFinancials } from '../../context/AuthContext';
@@ -26,6 +26,8 @@ const emptyDraft = () => ({
   billingAddress: '', deliveryAddress: '', deliverySameAsBilling: false,
   cartonCount: 0, shippingMethod: 'Standard Shipping',
   shippingCost: 0, expressFee: 0, shippingNotes: '',
+  // What we charge for freight; null means cost plus markup
+  shippingPrice: null as number | null, expressPrice: null as number | null,
   markupPct: 30, vatRate: 20, discount: 0, notes: ''
 });
 
@@ -41,6 +43,7 @@ export const QuoteBuilder: React.FC<Props> = ({
   const showMoney = useCanSeeFinancials();
   const [draft, setDraft] = useState(emptyDraft());
   const [lines, setLines] = useState<QuoteLine[]>([]);
+  const [charges, setCharges] = useState<QuoteCharge[]>([]);
   const [editingLine, setEditingLine] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +77,8 @@ export const QuoteBuilder: React.FC<Props> = ({
       shippingMethod: quote.shippingMethod || 'Standard Shipping',
       shippingCost: quote.shippingCost,
       expressFee: quote.expressFee,
+      shippingPrice: quote.shippingPrice ?? null,
+      expressPrice: quote.expressPrice ?? null,
       shippingNotes: quote.shippingNotes || '',
       markupPct: quote.markupPct,
       vatRate: quote.vatRate,
@@ -81,6 +86,7 @@ export const QuoteBuilder: React.FC<Props> = ({
       notes: quote.notes || ''
     });
     setLines(quote.lines.map(l => ({ ...l, decorations: l.decorations.map(d => ({ ...d })) })));
+    setCharges((quote.charges || []).map(c => ({ ...c })));
   }, [quote]);
 
   /* Priced with the module the server uses, so the preview cannot drift. */
@@ -91,14 +97,47 @@ export const QuoteBuilder: React.FC<Props> = ({
       packagingCost: l.packagingCost,
       decorationUnitCost: l.decorations.reduce((s, d) => s + (Number(d.unitCost) || 0), 0),
       setupCost: l.decorations.reduce((s, d) => s + (Number(d.setupCost) || 0), 0),
-      minCharge: l.minCharge
+      minCharge: l.minCharge,
+      unitPrice: l.unitPrice ?? null,
+      setupPrice: l.setupPrice ?? null
     })),
     shippingCost: draft.shippingCost,
     expressFee: draft.expressFee,
+    shippingPrice: draft.shippingPrice,
+    expressPrice: draft.expressPrice,
+    charges,
     markupPct: draft.markupPct,
     vatRate: draft.vatRate,
     discount: draft.discount
-  }), [lines, draft.shippingCost, draft.expressFee, draft.markupPct, draft.vatRate, draft.discount]);
+  }), [lines, charges, draft.shippingCost, draft.expressFee, draft.shippingPrice,
+       draft.expressPrice, draft.markupPct, draft.vatRate, draft.discount]);
+
+  /**
+   * Fill every blank price from cost plus the markup, so the presets stay
+   * useful as a starting point without ever overriding a typed figure.
+   */
+  const priceFromMarkup = () => {
+    const factor = 1 + draft.markupPct / 100;
+    setLines(prev => prev.map((l, i) => {
+      if (l.unitPrice !== null && l.unitPrice !== undefined) return l;
+      const c = totals.lines[i];
+      const suggested = c && c.quantity
+        ? Math.round((c.lineCost * factor / c.quantity) * 100) / 100
+        : 0;
+      return { ...l, unitPrice: suggested };
+    }));
+    setDraft(d => ({
+      ...d,
+      shippingPrice: d.shippingPrice ?? Math.round(d.shippingCost * factor * 100) / 100,
+      expressPrice: d.expressPrice ?? Math.round(d.expressFee * factor * 100) / 100
+    }));
+  };
+
+  /** Clear the typed prices and go back to deriving them. */
+  const clearPrices = () => {
+    setLines(prev => prev.map(l => ({ ...l, unitPrice: null, setupPrice: null })));
+    setDraft(d => ({ ...d, shippingPrice: null, expressPrice: null }));
+  };
 
   const pickCustomer = (contactId: string) => {
     const c = reference?.customers.find(x => x.contactId === contactId);
@@ -119,7 +158,7 @@ export const QuoteBuilder: React.FC<Props> = ({
       const r = await fetch('/api/quotes', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: quote?.id, ...draft, lines })
+        body: JSON.stringify({ id: quote?.id, ...draft, lines, charges })
       });
       const d = await r.json();
       if (!r.ok) return setError(d.error || 'Could not save the quote.');
@@ -267,9 +306,10 @@ export const QuoteBuilder: React.FC<Props> = ({
                         <tr>
                           <th className="text-left font-semibold px-1 pb-1.5">Item</th>
                           <th className="text-right font-semibold px-1 pb-1.5 w-14">Qty</th>
-                          <th className="text-right font-semibold px-1 pb-1.5 w-20">Unit</th>
-                          <th className="text-right font-semibold px-1 pb-1.5 w-20">Setup</th>
-                          <th className="text-right font-semibold px-1 pb-1.5 w-24">Cost</th>
+                          {showMoney && <th className="text-right font-semibold px-1 pb-1.5 w-20">Cost/unit</th>}
+                          <th className="text-right font-semibold px-1 pb-1.5 w-24">Price/unit</th>
+                          <th className="text-right font-semibold px-1 pb-1.5 w-24">Setup charge</th>
+                          <th className="text-right font-semibold px-1 pb-1.5 w-24">Line total</th>
                           <th className="w-14"></th>
                         </tr>
                       </thead>
@@ -296,12 +336,51 @@ export const QuoteBuilder: React.FC<Props> = ({
                                 </div>
                               </td>
                               <td className="px-1 py-2 text-right tabular-nums text-[13px]">{l.quantity.toLocaleString()}</td>
-                              <td className="px-1 py-2 text-right tabular-nums text-[13px]">{money(c?.unitCost ?? 0)}</td>
-                              <td className="px-1 py-2 text-right tabular-nums text-[13px] text-slate-500">{money(c?.setupCost ?? 0)}</td>
+
+                              {showMoney && (
+                                <td className="px-1 py-2 text-right tabular-nums text-[12px] text-slate-500">
+                                  {money(c?.unitCost ?? 0)}
+                                  {(c?.setupCost ?? 0) > 0 && (
+                                    <span className="block text-[9.5px]">+{money(c!.setupCost)} setup</span>
+                                  )}
+                                  {c?.minChargeApplied && (
+                                    <span className="block text-[9px] font-bold text-amber-600 uppercase">Min charge</span>
+                                  )}
+                                </td>
+                              )}
+
+                              {/* The price is typed, not derived. Blank falls back to markup. */}
+                              <td className="px-1 py-2">
+                                <input type="number" min="0" step="0.01" disabled={locked}
+                                  className={`${F} text-right tabular-nums py-1`}
+                                  placeholder={money(c?.effectiveUnitPrice ?? 0).replace('£', '')}
+                                  value={l.unitPrice ?? ''}
+                                  onChange={e => setLines(lines.map((x, xi) => xi === i
+                                    ? { ...x, unitPrice: e.target.value === '' ? null : Number(e.target.value) }
+                                    : x))} />
+                              </td>
+                              <td className="px-1 py-2">
+                                <input type="number" min="0" step="0.01" disabled={locked}
+                                  className={`${F} text-right tabular-nums py-1`}
+                                  placeholder="0.00"
+                                  value={l.setupPrice ?? ''}
+                                  onChange={e => setLines(lines.map((x, xi) => xi === i
+                                    ? { ...x, setupPrice: e.target.value === '' ? null : Number(e.target.value) }
+                                    : x))} />
+                              </td>
+
                               <td className="px-1 py-2 text-right tabular-nums text-[13px] font-semibold">
-                                {money(c?.lineCost ?? 0)}
-                                {c?.minChargeApplied && (
-                                  <span className="block text-[9px] font-bold text-amber-600 uppercase">Min charge</span>
+                                {money(c?.lineprice ?? 0)}
+                                {showMoney && (c?.lineprice ?? 0) > 0 && (
+                                  <span className={`block text-[9.5px] font-bold ${
+                                    (c?.lineMarginPct ?? 0) >= 20 ? 'text-emerald-600'
+                                      : (c?.lineMarginPct ?? 0) >= 0 ? 'text-amber-600' : 'text-rose-600'
+                                  }`}>
+                                    {c?.lineMarginPct}% margin
+                                  </span>
+                                )}
+                                {!c?.pricedManually && (
+                                  <span className="block text-[9px] text-slate-400 uppercase">from markup</span>
                                 )}
                               </td>
                               <td className="px-1 py-2 text-right">
@@ -344,37 +423,40 @@ export const QuoteBuilder: React.FC<Props> = ({
                       onChange={e => setDraft({ ...draft, cartonCount: Number(e.target.value) || 0 })} disabled={locked} />
                   </div>
                   <div>
-                    <label className={L}>Shipping £</label>
-                    <input type="number" min="0" step="0.01" className={`${F} text-right`} value={draft.shippingCost || ''}
-                      onChange={e => setDraft({ ...draft, shippingCost: Number(e.target.value) || 0 })} disabled={locked} />
+                    <label className={L}>Shipping charge £</label>
+                    <input type="number" min="0" step="0.01" className={`${F} text-right`}
+                      placeholder={totals.shippingPrice.toFixed(2)}
+                      value={draft.shippingPrice ?? ''}
+                      onChange={e => setDraft({ ...draft, shippingPrice: e.target.value === '' ? null : Number(e.target.value) })}
+                      disabled={locked} />
                   </div>
                   <div>
-                    <label className={L}>Express £</label>
-                    <input type="number" min="0" step="0.01" className={`${F} text-right`} value={draft.expressFee || ''}
-                      onChange={e => setDraft({ ...draft, expressFee: Number(e.target.value) || 0 })} disabled={locked} />
+                    <label className={L}>Express charge £</label>
+                    <input type="number" min="0" step="0.01" className={`${F} text-right`}
+                      placeholder={totals.expressPrice.toFixed(2)}
+                      value={draft.expressPrice ?? ''}
+                      onChange={e => setDraft({ ...draft, expressPrice: e.target.value === '' ? null : Number(e.target.value) })}
+                      disabled={locked} />
                   </div>
                 </div>
 
-                <div className={`flex flex-wrap items-end gap-2 mt-3 pt-3 border-t border-slate-100 ${showMoney ? '' : 'hidden'}`}>
-                  <div className="flex items-end gap-1.5">
-                    {reference?.markupPresets.map(p => (
-                      <button key={p.markupPct} disabled={locked}
-                        onClick={() => setDraft({ ...draft, markupPct: p.markupPct })}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
-                          draft.markupPct === p.markupPct
-                            ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
-                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                        }`}>
-                        {p.markupPct}%
-                        <span className="block text-[9px] font-medium opacity-70">{p.marginPct}% mgn</span>
-                      </button>
-                    ))}
+                {/* What freight costs us sits beside what we charge for it */}
+                {showMoney && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 mt-2.5">
+                    <div className="md:col-start-3">
+                      <label className={L}>Shipping cost £</label>
+                      <input type="number" min="0" step="0.01" className={`${F} text-right`} value={draft.shippingCost || ''}
+                        onChange={e => setDraft({ ...draft, shippingCost: Number(e.target.value) || 0 })} disabled={locked} />
+                    </div>
+                    <div>
+                      <label className={L}>Express cost £</label>
+                      <input type="number" min="0" step="0.01" className={`${F} text-right`} value={draft.expressFee || ''}
+                        onChange={e => setDraft({ ...draft, expressFee: Number(e.target.value) || 0 })} disabled={locked} />
+                    </div>
                   </div>
-                  <div className="w-[88px]">
-                    <label className={L}>Markup %</label>
-                    <input type="number" min="0" step="0.1" disabled={locked} className={`${F} text-right`}
-                      value={draft.markupPct} onChange={e => setDraft({ ...draft, markupPct: Number(e.target.value) || 0 })} />
-                  </div>
+                )}
+
+                <div className="flex flex-wrap items-end gap-2 mt-3 pt-3 border-t border-slate-100">
                   <div className="w-[140px]">
                     <label className={L}>VAT</label>
                     <select className={F} value={draft.vatRate} disabled={locked}
@@ -382,16 +464,106 @@ export const QuoteBuilder: React.FC<Props> = ({
                       {reference?.vatRates.map(v => <option key={v.rate} value={v.rate}>{v.label}</option>)}
                     </select>
                   </div>
-                  <div className="w-[100px]">
+                  <div className="w-[110px]">
                     <label className={L}>Discount £</label>
                     <input type="number" min="0" step="0.01" className={`${F} text-right`} value={draft.discount || ''}
                       onChange={e => setDraft({ ...draft, discount: Number(e.target.value) || 0 })} disabled={locked} />
                   </div>
                 </div>
-                {showMoney && (
-                  <p className="text-[10px] text-slate-500 mt-2">
-                    Shipping and express are costs of the job, so markup applies to them too.
-                  </p>
+
+                {/* Markup is a way to fill prices in, not the price itself */}
+                {showMoney && !locked && (
+                  <div className="mt-3 pt-3 border-t border-slate-100">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="flex items-end gap-1.5">
+                        {reference?.markupPresets.map(p => (
+                          <button key={p.markupPct}
+                            onClick={() => setDraft({ ...draft, markupPct: p.markupPct })}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
+                              draft.markupPct === p.markupPct
+                                ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                            }`}>
+                            {p.markupPct}%
+                            <span className="block text-[9px] font-medium opacity-70">{p.marginPct}% mgn</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="w-[80px]">
+                        <label className={L}>Markup %</label>
+                        <input type="number" min="0" step="0.1" className={`${F} text-right`}
+                          value={draft.markupPct}
+                          onChange={e => setDraft({ ...draft, markupPct: Number(e.target.value) || 0 })} />
+                      </div>
+                      <button onClick={priceFromMarkup}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-white text-[11px] font-semibold hover:bg-slate-900">
+                        Fill blank prices
+                      </button>
+                      <button onClick={clearPrices}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
+                        Clear prices
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-2">
+                      A price you type is the price. This only fills the ones left blank, and never
+                      overwrites what you entered.
+                    </p>
+                  </div>
+                )}
+              </section>
+
+              {/* --------------------------------------------- other charges */}
+              <section className={CARD}>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h3 className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">Other charges</h3>
+                    <p className="text-[10px] text-slate-500">
+                      Artwork, origination, samples — anything charged that is not an item.
+                    </p>
+                  </div>
+                  {!locked && (
+                    <button onClick={() => setCharges([...charges, { description: '', amount: 0, cost: 0 }])}
+                      className="px-2 py-1 rounded-lg border border-slate-200 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1">
+                      <Plus className="w-3 h-3" /> Add charge
+                    </button>
+                  )}
+                </div>
+
+                {charges.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-2 text-center">None.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {charges.map((c, i) => (
+                      <div key={i} className="flex items-end gap-2">
+                        <div className="flex-1 min-w-0">
+                          {i === 0 && <label className={L}>Description</label>}
+                          <input className={F} value={c.description} disabled={locked}
+                            placeholder="e.g. Artwork origination"
+                            onChange={e => setCharges(charges.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
+                        </div>
+                        <div className="w-[110px]">
+                          {i === 0 && <label className={L}>Charge £</label>}
+                          <input type="number" min="0" step="0.01" className={`${F} text-right`} disabled={locked}
+                            value={c.amount || ''}
+                            onChange={e => setCharges(charges.map((x, xi) => xi === i ? { ...x, amount: Number(e.target.value) || 0 } : x))} />
+                        </div>
+                        {showMoney && (
+                          <div className="w-[100px]">
+                            {i === 0 && <label className={L}>Cost £</label>}
+                            <input type="number" min="0" step="0.01" className={`${F} text-right`} disabled={locked}
+                              value={c.cost || ''} placeholder="0.00"
+                              onChange={e => setCharges(charges.map((x, xi) => xi === i ? { ...x, cost: Number(e.target.value) || 0 } : x))} />
+                          </div>
+                        )}
+                        {!locked && (
+                          <button onClick={() => setCharges(charges.filter((_, xi) => xi !== i))}
+                            className="p-2 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </section>
 
@@ -409,14 +581,36 @@ export const QuoteBuilder: React.FC<Props> = ({
                 <h3 className="text-[10px] font-bold text-indigo-900 uppercase tracking-wide mb-2">Customer pays</h3>
                 <dl className="space-y-1 text-[13px]">
                   <div className="flex justify-between">
-                    <dt className="text-slate-600">Subtotal</dt>
-                    <dd className="tabular-nums font-semibold">{money(totals.netTotal)}</dd>
+                    <dt className="text-slate-600">Items</dt>
+                    <dd className="tabular-nums">{money(totals.goodsPrice)}</dd>
                   </div>
+                  {totals.shippingPrice > 0 && (
+                    <div className="flex justify-between">
+                      <dt className="text-slate-600">Shipping</dt>
+                      <dd className="tabular-nums">{money(totals.shippingPrice)}</dd>
+                    </div>
+                  )}
+                  {totals.expressPrice > 0 && (
+                    <div className="flex justify-between">
+                      <dt className="text-slate-600">Express</dt>
+                      <dd className="tabular-nums">{money(totals.expressPrice)}</dd>
+                    </div>
+                  )}
+                  {totals.chargesPrice > 0 && (
+                    <div className="flex justify-between">
+                      <dt className="text-slate-600">Other charges</dt>
+                      <dd className="tabular-nums">{money(totals.chargesPrice)}</dd>
+                    </div>
+                  )}
                   {totals.discount > 0 && (
                     <div className="flex justify-between text-slate-600">
                       <dt>Discount</dt><dd className="tabular-nums">−{money(totals.discount)}</dd>
                     </div>
                   )}
+                  <div className="flex justify-between pt-1 border-t border-indigo-200/60">
+                    <dt className="text-slate-600">Subtotal ex VAT</dt>
+                    <dd className="tabular-nums font-semibold">{money(totals.netTotal)}</dd>
+                  </div>
                   <div className="flex justify-between">
                     <dt className="text-slate-600">VAT {totals.vatRate}%</dt>
                     <dd className="tabular-nums">{money(totals.vatTotal)}</dd>
@@ -431,7 +625,10 @@ export const QuoteBuilder: React.FC<Props> = ({
                 <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Our side</h3>
                 <dl className="space-y-1 text-[13px]">
                   <div className="flex justify-between"><dt className="text-slate-600">Goods</dt><dd className="tabular-nums">{money(totals.goodsCost)}</dd></div>
-                  <div className="flex justify-between"><dt className="text-slate-600">Shipping</dt><dd className="tabular-nums">{money(totals.shippingCost + totals.expressFee)}</dd></div>
+                  <div className="flex justify-between"><dt className="text-slate-600">Freight</dt><dd className="tabular-nums">{money(totals.shippingCost + totals.expressFee)}</dd></div>
+                  {totals.chargesCost > 0 && (
+                    <div className="flex justify-between"><dt className="text-slate-600">Other</dt><dd className="tabular-nums">{money(totals.chargesCost)}</dd></div>
+                  )}
                   <div className="flex justify-between font-semibold text-slate-900 pt-1 border-t border-slate-100">
                     <dt>Total cost</dt><dd className="tabular-nums">{money(totals.totalCost)}</dd>
                   </div>
@@ -441,13 +638,16 @@ export const QuoteBuilder: React.FC<Props> = ({
                       {money(totals.profit)}
                     </dd>
                   </div>
+                  {/* Margin follows from the prices chosen; it is not set */}
                   <div className="flex justify-between text-[11px] text-slate-500">
-                    <dt>Markup {totals.markupPct}%</dt>
+                    <dt>{totals.effectiveMarkupPct}% markup</dt>
                     <dd className="font-semibold">{totals.marginPct}% margin</dd>
                   </div>
                 </dl>
                 <p className="text-[10px] text-slate-400 mt-2 leading-snug">
-                  Cost is net of VAT — supplier VAT is reclaimable.
+                  {totals.allPricesDerived
+                    ? `Prices derived from ${totals.markupPct}% markup. Type over any of them to set your own.`
+                    : 'Margin follows from the prices you entered. Cost is net of VAT — supplier VAT is reclaimable.'}
                 </p>
               </section>}
             </div>

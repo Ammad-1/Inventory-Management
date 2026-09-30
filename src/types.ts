@@ -516,7 +516,27 @@ export interface QuoteLine {
   unitCost?: number;
   lineCost?: number;
   minChargeApplied?: boolean;
+
+  /**
+   * What the customer is charged, excluding VAT. Typed in rather than
+   * derived: null means fall back to cost plus the quote's markup.
+   */
+  unitPrice?: number | null;
+  setupPrice?: number | null;
+  /** Server-computed: unitPrice x quantity + setupPrice. */
+  linePrice?: number;
+
   decorations: QuoteLineDecoration[];
+}
+
+/** Anything charged beyond the items: artwork, samples, a surcharge. */
+export interface QuoteCharge {
+  id?: string;
+  description: string;
+  /** Excluding VAT. */
+  amount: number;
+  /** What it costs us, if anything. */
+  cost?: number;
 }
 
 export interface Quote {
@@ -538,6 +558,9 @@ export interface Quote {
   shippingMethod?: string | null;
   shippingCost: number;
   expressFee: number;
+  /** What we charge for freight. Null falls back to cost plus markup. */
+  shippingPrice?: number | null;
+  expressPrice?: number | null;
   shippingNotes?: string | null;
   /** Applied to net cost only. VAT is never marked up. */
   markupPct: number;
@@ -560,6 +583,7 @@ export interface Quote {
   sentAt?: string | null;
   decidedAt?: string | null;
   lines: QuoteLine[];
+  charges: QuoteCharge[];
 }
 
 export interface QuoteReference {

@@ -69,6 +69,10 @@ export function buildQuotePdf(quoteId: string, company: CompanyDetails): PDFKit.
     'SELECT * FROM quote_lines WHERE quote_id = ? ORDER BY sort_order'
   ).all(quoteId) as any[];
 
+  const charges = db.prepare(
+    'SELECT description, amount, cost FROM quote_charges WHERE quote_id = ? ORDER BY sort_order'
+  ).all(quote.id) as any[];
+
   const totals = calculateQuote({
     lines: lines.map(l => ({
       quantity: l.quantity,
@@ -76,15 +80,19 @@ export function buildQuotePdf(quoteId: string, company: CompanyDetails): PDFKit.
       packagingCost: l.packaging_cost,
       decorationUnitCost: l.decoration_unit_cost,
       setupCost: l.setup_cost,
-      minCharge: l.min_charge
+      minCharge: l.min_charge,
+      unitPrice: l.unit_price,
+      setupPrice: l.setup_price
     })),
     shippingCost: quote.shipping_cost,
     expressFee: quote.express_fee,
+    shippingPrice: quote.shipping_price,
+    expressPrice: quote.express_price,
+    charges: charges.map(c => ({ description: c.description, amount: c.amount, cost: c.cost })),
     markupPct: quote.markup_pct,
     vatRate: quote.vat_rate,
     discount: quote.discount
   });
-  const factor = 1 + totals.markupPct / 100;
 
   const doc = new PDFDocument({
     size: 'A4',
@@ -244,8 +252,8 @@ export function buildQuotePdf(quoteId: string, company: CompanyDetails): PDFKit.
 
   lines.forEach((l, i) => {
     const costed = totals.lines[i];
-    const sellTotal = Math.round(costed.lineCost * factor * 100) / 100;
-    const unitPrice = costed.quantity ? sellTotal / costed.quantity : sellTotal;
+    const sellTotal = costed.lineprice;
+    const unitPrice = costed.effectiveUnitPrice;
 
     const decs = db.prepare(
       'SELECT decoration_name, print_area_name, colours FROM quote_line_decorations WHERE quote_line_id = ?'
@@ -316,15 +324,10 @@ export function buildQuotePdf(quoteId: string, company: CompanyDetails): PDFKit.
   const totX = M + CONTENT - totW;
   const blockY = y;
 
-  const totalRows: [string, string][] = [
-    ['Subtotal (excl. VAT)', money(totals.netTotal - Math.round(totals.shippingCost * factor * 100) / 100 - Math.round(totals.expressFee * factor * 100) / 100 + totals.discount)]
-  ];
-  if (totals.shippingCost > 0) {
-    totalRows.push(['Shipping & Packaging', money(Math.round(totals.shippingCost * factor * 100) / 100)]);
-  }
-  if (totals.expressFee > 0) {
-    totalRows.push(['Express Handling', money(Math.round(totals.expressFee * factor * 100) / 100)]);
-  }
+  const totalRows: [string, string][] = [['Subtotal (excl. VAT)', money(totals.goodsPrice)]];
+  if (totals.shippingPrice > 0) totalRows.push(['Shipping & Packaging', money(totals.shippingPrice)]);
+  if (totals.expressPrice > 0) totalRows.push(['Express Handling', money(totals.expressPrice)]);
+  if (totals.chargesPrice > 0) totalRows.push(['Other Charges', money(totals.chargesPrice)]);
   if (totals.discount > 0) totalRows.push(['Discount', `−${money(totals.discount)}`]);
   totalRows.push([`VAT (${totals.vatRate}%)`, money(totals.vatTotal)]);
 

@@ -154,6 +154,9 @@ const hydrate = (q: any) => {
     unitCost: l.unit_cost,
     lineCost: l.line_cost,
     minChargeApplied: !!l.min_charge_applied,
+    unitPrice: l.unit_price,
+    setupPrice: l.setup_price,
+    linePrice: l.line_price,
     decorations: db.prepare(`
       SELECT id, decoration_type_id as decorationTypeId, decoration_name as decorationName,
              print_area_id as printAreaId, print_area_name as printAreaName,
@@ -181,6 +184,8 @@ const hydrate = (q: any) => {
     shippingMethod: q.shipping_method,
     shippingCost: q.shipping_cost,
     expressFee: q.express_fee,
+    shippingPrice: q.shipping_price,
+    expressPrice: q.express_price,
     shippingNotes: q.shipping_notes,
     markupPct: q.markup_pct,
     vatRate: q.vat_rate,
@@ -195,6 +200,10 @@ const hydrate = (q: any) => {
     marginPct: q.margin_pct,
     xeroInvoiceId: q.xero_invoice_id,
     xeroInvoiceNumber: q.xero_invoice_number,
+    charges: db.prepare(`
+      SELECT id, description, amount, cost FROM quote_charges
+      WHERE quote_id = ? ORDER BY sort_order
+    `).all(q.id),
     createdAt: q.created_at,
     updatedAt: q.updated_at,
     sentAt: q.sent_at,
@@ -243,6 +252,10 @@ quotesRouter.post('/preview', (req: Request, res: Response) => {
 });
 
 /** Build the costing input from a request body, resolving real stock costs. */
+/** A price the client left blank must stay blank, not become zero. */
+const optionalNumber = (v: any) =>
+  v === null || v === undefined || v === '' ? null : Number(v);
+
 function priceFromBody(body: any) {
   const lines = (body.lines || []).map((l: any) => {
     const decorations = l.decorations || [];
@@ -252,7 +265,9 @@ function priceFromBody(body: any) {
       packagingCost: Number(l.packagingCost) || 0,
       decorationUnitCost: decorations.reduce((s: number, d: any) => s + (Number(d.unitCost) || 0), 0),
       setupCost: decorations.reduce((s: number, d: any) => s + (Number(d.setupCost) || 0), 0),
-      minCharge: Number(l.minCharge) || 0
+      minCharge: Number(l.minCharge) || 0,
+      unitPrice: optionalNumber(l.unitPrice),
+      setupPrice: optionalNumber(l.setupPrice)
     };
   });
 
@@ -260,6 +275,13 @@ function priceFromBody(body: any) {
     lines,
     shippingCost: Number(body.shippingCost) || 0,
     expressFee: Number(body.expressFee) || 0,
+    shippingPrice: optionalNumber(body.shippingPrice),
+    expressPrice: optionalNumber(body.expressPrice),
+    charges: (body.charges || []).map((c: any) => ({
+      description: String(c.description || '').trim(),
+      amount: Number(c.amount) || 0,
+      cost: Number(c.cost) || 0
+    })),
     markupPct: Number(body.markupPct) || 0,
     vatRate: body.vatRate === undefined ? 20 : Number(body.vatRate),
     discount: Number(body.discount) || 0
@@ -285,9 +307,31 @@ quotesRouter.put('/', (req: Request, res: Response) => {
         return res.status(400).json({ error: `Item ${i + 1}: quantity must be at least 1` });
       }
     }
-    for (const [field, label] of [['shippingCost', 'Shipping cost'], ['expressFee', 'Express fee'], ['discount', 'Discount']]) {
-      const v = Number(b[field] ?? 0);
+    for (const [field, label] of [
+      ['shippingCost', 'Shipping cost'], ['expressFee', 'Express fee'], ['discount', 'Discount'],
+      ['shippingPrice', 'Shipping charge'], ['expressPrice', 'Express charge']
+    ]) {
+      if (b[field] === null || b[field] === undefined || b[field] === '') continue;
+      const v = Number(b[field]);
       if (!Number.isFinite(v) || v < 0) return res.status(400).json({ error: `${label} must be zero or more` });
+    }
+    for (const [i, l] of b.lines.entries()) {
+      for (const [field, label] of [['unitPrice', 'unit price'], ['setupPrice', 'setup charge']]) {
+        if (l[field] === null || l[field] === undefined || l[field] === '') continue;
+        const v = Number(l[field]);
+        if (!Number.isFinite(v) || v < 0) {
+          return res.status(400).json({ error: `Item ${i + 1}: ${label} must be zero or more` });
+        }
+      }
+    }
+    for (const [i, c] of (b.charges || []).entries()) {
+      if (!String(c.description || '').trim()) {
+        return res.status(400).json({ error: `Charge ${i + 1} needs a description` });
+      }
+      const v = Number(c.amount);
+      if (!Number.isFinite(v) || v < 0) {
+        return res.status(400).json({ error: `Charge ${i + 1}: amount must be zero or more` });
+      }
     }
     const markupPct = Number(b.markupPct ?? 30);
     if (!Number.isFinite(markupPct) || markupPct < 0) {
@@ -314,11 +358,12 @@ quotesRouter.put('/', (req: Request, res: Response) => {
           id, quote_number, status, contact_id, customer_name, customer_email,
           customer_reference, sales_rep, quote_date, valid_until, lead_time,
           billing_address, delivery_address, delivery_same_as_billing,
-          carton_count, shipping_method, shipping_cost, express_fee, shipping_notes,
+          carton_count, shipping_method, shipping_cost, express_fee,
+          shipping_price, express_price, shipping_notes,
           markup_pct, vat_rate, discount, notes,
           goods_cost, total_cost, net_total, vat_total, gross_total, profit, margin_pct,
           created_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET
           contact_id = excluded.contact_id,
           customer_name = excluded.customer_name,
@@ -335,6 +380,8 @@ quotesRouter.put('/', (req: Request, res: Response) => {
           shipping_method = excluded.shipping_method,
           shipping_cost = excluded.shipping_cost,
           express_fee = excluded.express_fee,
+          shipping_price = excluded.shipping_price,
+          express_price = excluded.express_price,
           shipping_notes = excluded.shipping_notes,
           markup_pct = excluded.markup_pct,
           vat_rate = excluded.vat_rate,
@@ -355,7 +402,9 @@ quotesRouter.put('/', (req: Request, res: Response) => {
         b.quoteDate || stamp.slice(0, 10), b.validUntil || null, b.leadTime || null,
         b.billingAddress || null, b.deliveryAddress || null, b.deliverySameAsBilling ? 1 : 0,
         Number(b.cartonCount) || 0, b.shippingMethod || null,
-        totals.shippingCost, totals.expressFee, b.shippingNotes || null,
+        totals.shippingCost, totals.expressFee,
+        optionalNumber(b.shippingPrice), optionalNumber(b.expressPrice),
+        b.shippingNotes || null,
         totals.markupPct, totals.vatRate, totals.discount, b.notes || null,
         totals.goodsCost, totals.totalCost, totals.netTotal, totals.vatTotal,
         totals.grossTotal, totals.profit, totals.marginPct,
@@ -368,13 +417,24 @@ quotesRouter.put('/', (req: Request, res: Response) => {
       const delDecs = db.prepare('DELETE FROM quote_line_decorations WHERE quote_line_id = ?');
       for (const ol of oldLines) delDecs.run(ol.id);
       db.prepare('DELETE FROM quote_lines WHERE quote_id = ?').run(quoteId);
+      db.prepare('DELETE FROM quote_charges WHERE quote_id = ?').run(quoteId);
+
+      const insCharge = db.prepare(`
+        INSERT INTO quote_charges (id, quote_id, description, amount, cost, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      (b.charges || []).forEach((c: any, i: number) => {
+        insCharge.run(uid('qc'), quoteId, String(c.description).trim(),
+                      Number(c.amount) || 0, Number(c.cost) || 0, i);
+      });
 
       const insLine = db.prepare(`
         INSERT INTO quote_lines (
           id, quote_id, sort_order, product_id, product_sku, product_name, image_url,
           description, quantity, blank_cost, packaging_cost, decoration_unit_cost,
-          setup_cost, min_charge, unit_cost, line_cost, min_charge_applied
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          setup_cost, min_charge, unit_cost, line_cost, min_charge_applied,
+          unit_price, setup_price, line_price
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `);
       const insDec = db.prepare(`
         INSERT INTO quote_line_decorations (
@@ -394,7 +454,8 @@ quotesRouter.put('/', (req: Request, res: Response) => {
           Number(l.blankCost) || 0, Number(l.packagingCost) || 0,
           decorations.reduce((s: number, d: any) => s + (Number(d.unitCost) || 0), 0),
           costed.setupCost, Number(l.minCharge) || 0,
-          costed.unitCost, costed.lineCost, costed.minChargeApplied ? 1 : 0
+          costed.unitCost, costed.lineCost, costed.minChargeApplied ? 1 : 0,
+          optionalNumber(l.unitPrice), optionalNumber(l.setupPrice), costed.lineprice
         );
         for (const d of decorations) {
           insDec.run(
@@ -466,6 +527,7 @@ quotesRouter.delete('/:id', (req: Request, res: Response) => {
       const delDecs = db.prepare('DELETE FROM quote_line_decorations WHERE quote_line_id = ?');
       for (const l of lines) delDecs.run(l.id);
       db.prepare('DELETE FROM quote_lines WHERE quote_id = ?').run(req.params.id);
+      db.prepare('DELETE FROM quote_charges WHERE quote_id = ?').run(req.params.id);
       db.prepare('DELETE FROM quotes WHERE id = ?').run(req.params.id);
       db.exec('COMMIT');
     } catch (e) {

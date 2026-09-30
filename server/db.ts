@@ -675,6 +675,9 @@ export function initDatabase() {
       shipping_method TEXT,
       shipping_cost REAL NOT NULL DEFAULT 0,
       express_fee REAL NOT NULL DEFAULT 0,
+      -- What we charge for freight. Null falls back to cost plus markup.
+      shipping_price REAL,
+      express_price REAL,
       shipping_notes TEXT,
 
       markup_pct REAL NOT NULL DEFAULT 30,
@@ -727,6 +730,12 @@ export function initDatabase() {
       line_cost REAL NOT NULL DEFAULT 0,
       min_charge_applied INTEGER NOT NULL DEFAULT 0,
 
+      -- What the customer is charged, entered rather than derived. Null
+      -- means fall back to cost plus the quote's markup.
+      unit_price REAL,
+      setup_price REAL,
+      line_price REAL NOT NULL DEFAULT 0,
+
       FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE
     );
   `);
@@ -758,6 +767,35 @@ export function initDatabase() {
     db.exec('ALTER TABLE quote_line_decorations ADD COLUMN colours INTEGER NOT NULL DEFAULT 1;');
   } catch {
     /* already there */
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS quote_charges (
+      id TEXT PRIMARY KEY,
+      quote_id TEXT NOT NULL,
+      description TEXT NOT NULL,
+      -- Excluding VAT. cost is what it costs us, zero for pure margin.
+      amount REAL NOT NULL DEFAULT 0,
+      cost REAL NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE
+    );
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_quote_charges_quote ON quote_charges(quote_id);');
+
+  // Added after these tables shipped, so existing databases need them
+  for (const [table, col, type] of [
+    ['quote_lines', 'unit_price', 'REAL'],
+    ['quote_lines', 'setup_price', 'REAL'],
+    ['quote_lines', 'line_price', 'REAL NOT NULL DEFAULT 0'],
+    ['quotes', 'shipping_price', 'REAL'],
+    ['quotes', 'express_price', 'REAL']
+  ]) {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type};`);
+    } catch {
+      /* already there */
+    }
   }
 
   db.exec('CREATE INDEX IF NOT EXISTS idx_quote_lines_quote ON quote_lines(quote_id);');
