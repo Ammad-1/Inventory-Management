@@ -28,7 +28,6 @@ const CONTENT = RIGHT - M;
 
 // Sampled from the owner's artwork
 const PURPLE = '#943F94';
-const PINK = '#FEF3F7';
 const INK = '#2b2b2b';
 const MUTED = '#6b6b6b';
 const RULE = '#d8d8d8';
@@ -169,49 +168,46 @@ export async function buildQuotePdf(
   doc.moveTo(M, y).lineTo(RIGHT, y).strokeColor(RULE).lineWidth(1).stroke();
   y += 14;
 
-  /* -------------------------------- prepared for / delivery / product */
+  /* ------------------------------------ prepared for / delivery to */
+  /*
+   * No "selected product" panel. It could only ever show the first line,
+   * so a quote for three products announced one of them with "+2 more
+   * items" beneath — and every line already carries its own photograph,
+   * colour, size, type and SKU. The addresses take the width instead.
+   */
   const blockTop = y;
   const colA = M;
-  const colB = M + CONTENT * 0.30;
-  const panelX = M + CONTENT * 0.60;
-  const panelW = CONTENT * 0.40;
+  const colB = M + CONTENT * 0.5;
+  const colW = CONTENT * 0.46;
 
-  label('Prepared for', colA, blockTop, CONTENT * 0.28);
+  label('Prepared for', colA, blockTop, colW);
   doc.font('Helvetica-Bold').fontSize(11).fillColor(INK)
-    .text(quote.customer_name, colA, blockTop + 13, { width: CONTENT * 0.28 });
-  let aY = blockTop + 13 + doc.heightOfString(quote.customer_name, { width: CONTENT * 0.28 }) + 2;
+    .text(quote.customer_name, colA, blockTop + 13, { width: colW });
+  let aY = blockTop + 13 + doc.heightOfString(quote.customer_name, { width: colW }) + 2;
   if (quote.billing_address) {
     doc.font('Helvetica').fontSize(9).fillColor(INK)
-      .text(String(quote.billing_address), colA, aY, { width: CONTENT * 0.28 });
-    aY += doc.heightOfString(String(quote.billing_address), { width: CONTENT * 0.28 });
+      .text(String(quote.billing_address), colA, aY, { width: colW });
+    aY += doc.heightOfString(String(quote.billing_address), { width: colW });
   }
   if (quote.customer_email) {
     doc.font('Helvetica').fontSize(9).fillColor(INK)
-      .text(String(quote.customer_email), colA, aY, { width: CONTENT * 0.28 });
+      .text(String(quote.customer_email), colA, aY, { width: colW });
     aY += 12;
   }
 
-  label('Delivery address', colB, blockTop, CONTENT * 0.28);
+  label('Delivery address', colB, blockTop, colW);
   const deliveryText = quote.delivery_same_as_billing ? quote.billing_address : quote.delivery_address;
   let bY = blockTop + 13;
   if (deliveryText) {
     doc.font('Helvetica').fontSize(9).fillColor(INK)
-      .text(String(deliveryText), colB, bY, { width: CONTENT * 0.26 });
-    bY += doc.heightOfString(String(deliveryText), { width: CONTENT * 0.26 }) + 4;
+      .text(String(deliveryText), colB, bY, { width: colW });
+    bY += doc.heightOfString(String(deliveryText), { width: colW }) + 4;
   }
   if (quote.delivery_same_as_billing) {
     doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(MUTED)
-      .text('Same as billing address', colB, bY, { width: CONTENT * 0.26 });
+      .text('Same as billing address', colB, bY, { width: colW });
     bY += 12;
   }
-
-  // The product panel only makes sense when the quote is for one product
-  const first = lines[0];
-  const firstProduct = first?.product_id
-    ? db.prepare(
-        'SELECT colour, size, type, supplier_name, image_url FROM products WHERE id = ?'
-      ).get(first.product_id) as any
-    : null;
 
   /*
    * Photographs are fetched up front rather than mid-draw, because pdfkit
@@ -243,56 +239,7 @@ export async function buildQuotePdf(
     }
   }
 
-  let panelH = 0;
-  if (first) {
-    const rows: [string, string][] = [['Product:', first.product_name]];
-    if (first.product_sku) rows.push(['SKU:', first.product_sku]);
-    if (firstProduct?.colour) rows.push(['Colour:', firstProduct.colour]);
-    if (firstProduct?.size) rows.push(['Size:', firstProduct.size]);
-    if (firstProduct?.type) rows.push(['Type:', firstProduct.type]);
-    if (lines.length > 1) rows.push(['', `+ ${lines.length - 1} more item${lines.length === 2 ? '' : 's'}`]);
-
-    const photo = lineImages.get(first.id);
-    const photoW = photo ? 62 : 0;
-
-    const textX = panelX + 10 + (photo ? photoW + 8 : 0);
-    const textW = panelW - 20 - (photo ? photoW + 8 : 0);
-    const valueW = Math.max(40, textW - 42);
-
-    /*
-     * Measure before drawing. A long product name or SKU wraps onto two or
-     * three lines, and advancing a fixed 13px per row printed the next
-     * label straight through it.
-     */
-    const rowHeights = rows.map(([, v]) =>
-      Math.max(11, doc.font('Helvetica-Bold').fontSize(8).heightOfString(v, { width: valueW })));
-    const textH = rowHeights.reduce((a, b) => a + b + 2, 0);
-
-    panelH = Math.max(24 + textH + 8, photo ? 84 : 0);
-    box(panelX, blockTop - 6, panelW, panelH, PINK);
-    label('Selected product', panelX + 10, blockTop + 2, panelW - 20);
-
-    if (photo) {
-      try {
-        doc.image(photo, panelX + 10, blockTop + 16, {
-          fit: [photoW, panelH - 30], align: 'center', valign: 'center'
-        });
-      } catch {
-        /* a photograph pdfkit cannot decode is simply not shown */
-      }
-    }
-
-    let py = blockTop + 17;
-    rows.forEach(([k, v], ri) => {
-      doc.font('Helvetica').fontSize(8).fillColor(MUTED)
-        .text(k, textX, py, { width: 42 });
-      doc.font('Helvetica-Bold').fontSize(8).fillColor(INK)
-        .text(v, textX + 42, py, { width: valueW });
-      py += rowHeights[ri] + 2;
-    });
-  }
-
-  y = Math.max(aY, bY, blockTop + panelH) + 14;
+  y = Math.max(aY, bY) + 16;
 
   /* ------------------------------------------------------ items table */
   const COLS = [
